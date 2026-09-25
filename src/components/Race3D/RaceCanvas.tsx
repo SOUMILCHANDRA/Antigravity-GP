@@ -40,6 +40,8 @@ export const RaceCanvas: React.FC<RaceCanvasProps> = ({
             carState={aiCarState}
             isAI={true}
             liveryColor={aiCarState.color || '#00E5FF'}
+            isDrafting={aiCarState.isDrafting}
+            isOvertaking={aiCarState.isOvertaking}
           />
         )}
       </Canvas>

@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react';
-import { AppMode, CarState, LapTelemetry, TrackConfig, TrackNode, AICompetitorState, RaceBattleState } from './types/track';
+import { AppMode, CarState, LapTelemetry, TrackConfig, TrackNode, AICompetitorState, RaceBattleState, AIDifficulty } from './types/track';
 import { EMPTY_TRACK } from './utils/presets';
 import { buildTrackCurve, sampleSplinePoints, getTrackSpawnTransform, getNearestSplinePoint, checkFinishLineCrossing } from './utils/spline';
 import { createInitialCarState, updateCarPhysics, resetVehicle } from './utils/physics';
@@ -58,15 +58,29 @@ export function App() {
 
   // AI Competitor & Duel Battle State
   const [aiEnabled, setAiEnabled] = useState<boolean>(true);
+  const [aiDifficulty, setAiDifficulty] = useState<AIDifficulty>('challenger');
   const [aiCarState, setAiCarState] = useState<AICompetitorState>(createAICompetitor([]));
   const aiCarStateRef = useRef<AICompetitorState>(createAICompetitor([]));
   const aiPassedSector2Ref = useRef<boolean>(false);
+  const raceBattleStateRef = useRef<RaceBattleState>({
+    playerRank: 1,
+    aiRank: 2,
+    gapSeconds: 0,
+    gapMeters: 0
+  });
   const [raceBattleState, setRaceBattleState] = useState<RaceBattleState>({
     playerRank: 1,
     aiRank: 2,
     gapSeconds: 0,
     gapMeters: 0
   });
+
+  const cycleAIDifficulty = useCallback(() => {
+    setAiDifficulty(prev => {
+      const next: AIDifficulty = prev === 'challenger' ? 'legend' : (prev === 'legend' ? 'rookie' : 'challenger');
+      return next;
+    });
+  }, []);
 
   // Authoritative Keyboard Input Map (Default ALL to false)
   const keysRef = useRef<{ [key: string]: boolean }>({});
@@ -158,17 +172,19 @@ export function App() {
     setLapToast(null);
 
     // Reset AI Competitor
-    const freshAI = createAICompetitor(splinePoints);
+    const freshAI = createAICompetitor(splinePoints, aiDifficulty);
     aiCarStateRef.current = freshAI;
     aiPassedSector2Ref.current = false;
     setAiCarState(freshAI);
 
-    setRaceBattleState({
+    const initialBattle: RaceBattleState = {
       playerRank: 1,
       aiRank: 2,
       gapSeconds: 0,
-      gapMeters: 0
-    });
+      gapMeters: 9
+    };
+    raceBattleStateRef.current = initialBattle;
+    setRaceBattleState(initialBattle);
 
     if (resetAllTelemetry) {
       setLapTelemetry(INITIAL_LAP_TELEMETRY);
@@ -184,7 +200,7 @@ export function App() {
         return next;
       });
     }
-  }, [splinePoints, clearAllInputs]);
+  }, [splinePoints, clearAllInputs, aiDifficulty]);
 
   // Completely reset state whenever switching modes
   useEffect(() => {
@@ -203,10 +219,10 @@ export function App() {
     setLapTelemetry(INITIAL_LAP_TELEMETRY);
     lapTelemetryRef.current = INITIAL_LAP_TELEMETRY;
     setLapToast(null);
-    const freshAI = createAICompetitor(splinePoints);
+    const freshAI = createAICompetitor(splinePoints, aiDifficulty);
     aiCarStateRef.current = freshAI;
     setAiCarState(freshAI);
-  }, [track.nodes, splinePoints]);
+  }, [track.nodes, splinePoints, aiDifficulty]);
 
   // Robust Keyboard Event Listeners with Window Blur Guard
   useEffect(() => {
@@ -270,6 +286,9 @@ export function App() {
 
       // 2. Step AI Competitor Physics & Intelligent Racing Logic (if enabled)
       if (aiEnabled && splinePoints.length >= 4) {
+        const battle = raceBattleStateRef.current;
+        const progressDiff = battle.gapMeters * (battle.playerRank === 1 ? 1 : -1);
+
         const { nextAIState } = updateAICompetitor({
           aiState: aiCarStateRef.current,
           playerPos: nextState.position,
@@ -277,7 +296,9 @@ export function App() {
           splinePoints,
           racingLinePoints,
           deltaSeconds: dt,
-          aiPassedSector2Ref
+          aiPassedSector2Ref,
+          difficulty: aiDifficulty,
+          playerProgressDiff: progressDiff
         });
 
         // 3. Realistic Car-to-Car Physical Collision Resolution
@@ -289,7 +310,7 @@ export function App() {
         setAiCarState(resolvedAI);
 
         // 4. Update Live Race Battle Telemetry (P1/P2 & Gap)
-        const battle = calculateRaceBattle(
+        const newBattle = calculateRaceBattle(
           nextState.position,
           lapTelemetryRef.current,
           resolvedAI.position,
@@ -297,7 +318,8 @@ export function App() {
           splinePoints,
           resolvedAI.hasStartedRace ?? false
         );
-        setRaceBattleState(battle);
+        raceBattleStateRef.current = newBattle;
+        setRaceBattleState(newBattle);
       }
 
       const prevPos = { ...prevCarPosRef.current };
@@ -412,7 +434,7 @@ export function App() {
 
     animFrameId = requestAnimationFrame(loop);
     return () => cancelAnimationFrame(animFrameId);
-  }, [mode, splinePoints, racingLinePoints, aiEnabled]);
+  }, [mode, splinePoints, racingLinePoints, aiEnabled, aiDifficulty]);
 
   // Auto-dismiss lap toast notification after 3.5 seconds
   useEffect(() => {
@@ -521,6 +543,10 @@ export function App() {
               aiEnabled={aiEnabled}
               onToggleAI={() => setAiEnabled(prev => !prev)}
               aiTelemetry={aiCarState.lapTelemetry}
+              difficulty={aiDifficulty}
+              onChangeDifficulty={cycleAIDifficulty}
+              isDrafting={aiCarState.isDrafting}
+              isOvertaking={aiCarState.isOvertaking}
             />
             
             <Minimap

@@ -60,6 +60,7 @@ export interface LapTelemetry {
 
 export type CameraMode = 'chase' | 'cockpit' | 'topdown';
 export type AppMode = 'builder' | 'race';
+export type AIDifficulty = 'rookie' | 'challenger' | 'legend';
 
 export interface AICompetitorState extends CarState {
   name: string;
@@ -67,6 +68,9 @@ export interface AICompetitorState extends CarState {
   targetSpeedKmh: number;
   lapTelemetry: LapTelemetry;
   hasStartedRace?: boolean;
+  difficulty?: AIDifficulty;
+  isDrafting?: boolean;
+  isOvertaking?: boolean;
 }
 
 export interface RaceBattleState {

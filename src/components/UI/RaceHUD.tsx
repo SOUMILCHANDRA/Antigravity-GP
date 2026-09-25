@@ -1,7 +1,6 @@
-import React from 'react';
-import { LapTelemetry, RaceBattleState } from '../../types/track';
+import { AIDifficulty, LapTelemetry, RaceBattleState } from '../../types/track';
 import { formatTime } from '../../utils/time';
-import { Timer, Trophy, Gauge, AlertTriangle, Route, CheckCircle, RotateCcw, Swords } from 'lucide-react';
+import { Timer, Trophy, Gauge, AlertTriangle, Route, CheckCircle, RotateCcw, Swords, Flame } from 'lucide-react';
 
 export { formatTime };
 
@@ -17,6 +16,10 @@ interface RaceHUDProps {
   aiEnabled?: boolean;
   onToggleAI?: () => void;
   aiTelemetry?: LapTelemetry | null;
+  difficulty?: AIDifficulty;
+  onChangeDifficulty?: () => void;
+  isDrafting?: boolean;
+  isOvertaking?: boolean;
 }
 
 export const RaceHUD: React.FC<RaceHUDProps> = ({
@@ -30,10 +33,20 @@ export const RaceHUD: React.FC<RaceHUDProps> = ({
   battleState,
   aiEnabled = true,
   onToggleAI,
-  aiTelemetry
+  aiTelemetry,
+  difficulty = 'challenger',
+  onChangeDifficulty,
+  isDrafting = false,
+  isOvertaking = false
 }) => {
   const isReverse = speedKmh < 0;
   const absSpeed = Math.abs(speedKmh);
+
+  const difficultyColors = {
+    rookie: 'border-emerald-500/60 text-emerald-400 bg-emerald-950/40',
+    challenger: 'border-cyan-500/60 text-cyan-400 bg-cyan-950/40',
+    legend: 'border-purple-500/80 text-purple-300 bg-purple-950/60 shadow-lg shadow-purple-500/20'
+  };
 
   return (
     <div className="absolute top-20 left-6 flex flex-col gap-3 z-30 select-none font-mono text-slate-100">
@@ -77,6 +90,20 @@ export const RaceHUD: React.FC<RaceHUDProps> = ({
           </button>
         )}
 
+        {/* AI Difficulty Cycle Button */}
+        {aiEnabled && onChangeDifficulty && (
+          <button
+            onClick={onChangeDifficulty}
+            title={`Current Rival AI Mode: ${difficulty.toUpperCase()}. Click to cycle difficulty.`}
+            className={`px-3 py-2.5 rounded-2xl border font-sans text-xs font-bold transition-all flex items-center gap-1.5 active:scale-95 ${
+              difficultyColors[difficulty]
+            }`}
+          >
+            {difficulty === 'legend' && <Flame className="w-3.5 h-3.5 text-amber-400 animate-pulse" />}
+            <span>{difficulty.toUpperCase()}</span>
+          </button>
+        )}
+
         {/* Car & Timer Reset Button */}
         {onReset && (
           <button
@@ -91,8 +118,8 @@ export const RaceHUD: React.FC<RaceHUDProps> = ({
 
       {/* 2. Live Grand Prix Position & Battle Interval Card */}
       {aiEnabled && battleState && (
-        <div className="bg-[#0E131F]/90 backdrop-blur-md border border-[#1E2638] rounded-2xl px-4 py-2.5 shadow-xl flex items-center justify-between min-w-[220px]">
-          <div className="flex items-center gap-2">
+        <div className="bg-[#0E131F]/90 backdrop-blur-md border border-[#1E2638] rounded-2xl px-4 py-2.5 shadow-xl flex items-center justify-between min-w-[240px]">
+          <div className="flex items-center gap-2.5">
             <span
               className={`text-lg font-black px-2.5 py-0.5 rounded-xl border ${
                 battleState.playerRank === 1
@@ -106,9 +133,19 @@ export const RaceHUD: React.FC<RaceHUDProps> = ({
               <span className="text-[11px] font-sans font-bold text-white tracking-wide">
                 {battleState.playerRank === 1 ? 'LEADER' : 'CHASING'}
               </span>
-              <span className="text-[9px] font-mono text-cyan-400">
-                VS APEX AI
-              </span>
+              {isDrafting ? (
+                <span className="text-[9px] font-mono text-amber-400 font-bold animate-pulse flex items-center gap-1">
+                  ⚡ SLIPSTREAM TOW
+                </span>
+              ) : isOvertaking ? (
+                <span className="text-[9px] font-mono text-rose-400 font-bold animate-pulse flex items-center gap-1">
+                  ⚔️ OVERTAKE ATTEMPT
+                </span>
+              ) : (
+                <span className="text-[9px] font-mono text-cyan-400">
+                  VS APEX AI ({difficulty.toUpperCase()})
+                </span>
+              )}
             </div>
           </div>
 

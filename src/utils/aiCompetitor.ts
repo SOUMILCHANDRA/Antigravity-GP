@@ -1,4 +1,4 @@
-import { AICompetitorState, CarState, LapTelemetry, RaceBattleState, SplinePoint, Vector3D } from '../types/track';
+import { AICompetitorState, AIDifficulty, CarState, LapTelemetry, RaceBattleState, SplinePoint, Vector3D } from '../types/track';
 import { getNearestSplinePoint, checkFinishLineCrossing } from './spline';
 import { RacingLinePoint } from './racingLine';
 
@@ -14,7 +14,10 @@ export const INITIAL_AI_TELEMETRY: LapTelemetry = {
 /**
  * Creates or resets the AI Competitor state at Starting Grid Slot 2 (staggered behind pole).
  */
-export function createAICompetitor(splinePoints: SplinePoint[]): AICompetitorState {
+export function createAICompetitor(
+  splinePoints: SplinePoint[],
+  difficulty: AIDifficulty = 'challenger'
+): AICompetitorState {
   if (splinePoints.length < 2) {
     return {
       position: { x: 0, y: 0.1, z: -8.5 },
@@ -30,7 +33,10 @@ export function createAICompetitor(splinePoints: SplinePoint[]): AICompetitorSta
       color: '#00E5FF',
       targetSpeedKmh: 0,
       lapTelemetry: { ...INITIAL_AI_TELEMETRY },
-      hasStartedRace: false
+      hasStartedRace: false,
+      difficulty,
+      isDrafting: false,
+      isOvertaking: false
     };
   }
 
@@ -65,7 +71,10 @@ export function createAICompetitor(splinePoints: SplinePoint[]): AICompetitorSta
     color: '#00E5FF',
     targetSpeedKmh: 0,
     lapTelemetry: { ...INITIAL_AI_TELEMETRY },
-    hasStartedRace: false
+    hasStartedRace: false,
+    difficulty,
+    isDrafting: false,
+    isOvertaking: false
   };
 }
 
@@ -78,6 +87,37 @@ function normalizeAngle(rad: number): number {
   return rad;
 }
 
+/**
+ * Calculates geometric circumcircle radius of triangle (p1, p2, p3) in 2D X-Z plane.
+ * Provides exact, noise-free local track curvature radius.
+ */
+function computeCurvatureRadius(p1: Vector3D, p2: Vector3D, p3: Vector3D): number {
+  const a = Math.hypot(p2.x - p1.x, p2.z - p1.z);
+  const b = Math.hypot(p3.x - p2.x, p3.z - p2.z);
+  const c = Math.hypot(p1.x - p3.x, p1.z - p3.z);
+  const area = 0.5 * Math.abs((p2.x - p1.x) * (p3.z - p1.z) - (p2.z - p1.z) * (p3.x - p1.x));
+  if (area < 1e-4) return 9999;
+  return Math.max(10, Math.min(9999, (a * b * c) / (4 * area)));
+}
+
+/**
+ * Computes maximum cornering velocity based on radius and F1 aerodynamic downforce.
+ */
+function getTargetCornerSpeedMs(radius: number, difficulty: AIDifficulty = 'challenger'): number {
+  let gripMu = 2.4;
+  if (radius > 160) gripMu = 3.6; // High-speed downforce sweeper
+  else if (radius > 80) gripMu = 3.0; // Medium-speed corner
+  else if (radius > 40) gripMu = 2.6;
+
+  let speed = Math.sqrt(gripMu * 9.81 * radius);
+
+  if (difficulty === 'rookie') speed *= 0.85;
+  if (difficulty === 'legend') speed *= 1.08;
+
+  const maxTopSpeed = difficulty === 'legend' ? 92.0 : (difficulty === 'rookie' ? 76.0 : 88.0);
+  return Math.min(maxTopSpeed, Math.max(22.0, speed));
+}
+
 export interface AIUpdateParams {
   aiState: AICompetitorState;
   playerPos: Vector3D;
@@ -86,11 +126,18 @@ export interface AIUpdateParams {
   racingLinePoints?: RacingLinePoint[];
   deltaSeconds: number;
   aiPassedSector2Ref: { current: boolean };
+  difficulty?: AIDifficulty;
+  playerProgressDiff?: number; // Positive if player is ahead, negative if AI leads
 }
 
 /**
- * Updates AI competitor physics, intelligent pathfinding, cornering and racing line behavior.
- * Guarantees zero corner-cutting and strict track containment.
+ * Competitive Racing AI Engine:
+ * - High-speed F1 aerodynamic cornering & 310+ km/h straight-line pace
+ * - Long-horizon multi-point braking zone scanner
+ * - Slipstream / DRS aerodynamic drafting (+15 km/h tow)
+ * - Intelligent overtaking maneuvers into open track space
+ * - Adaptive pack racing push factor to sustain intense wheel-to-wheel battles
+ * - Strict asphalt boundary enforcement (zero grass corner-cutting)
  */
 export function updateAICompetitor(params: AIUpdateParams): {
   nextAIState: AICompetitorState;
@@ -103,7 +150,9 @@ export function updateAICompetitor(params: AIUpdateParams): {
     splinePoints,
     racingLinePoints,
     deltaSeconds,
-    aiPassedSector2Ref
+    aiPassedSector2Ref,
+    difficulty = aiState.difficulty || 'challenger',
+    playerProgressDiff = 0
   } = params;
 
   const n = splinePoints.length;
@@ -125,7 +174,7 @@ export function updateAICompetitor(params: AIUpdateParams): {
   const nearestP = nearestSplinePoint || splinePoints[nearestIndex];
   const roadWidth = nearestP.width || 14;
   // Maximum safe lateral distance from centerline (stay safely on asphalt and off grass)
-  const maxSafeOffset = Math.max(2.5, (roadWidth / 2) - 1.5);
+  const maxSafeOffset = Math.max(2.5, (roadWidth / 2) - 1.4);
 
   // Measure current signed lateral offset from track centerline
   const toAIX = aiState.position.x - nearestP.position.x;
@@ -134,7 +183,7 @@ export function updateAICompetitor(params: AIUpdateParams): {
   let currentLatOffset = toAIX * binormal.x + toAIZ * binormal.z;
 
   // STRICT TRACK CONTAINMENT:
-  // If the AI drifts towards or past the track limits, clamp it firmly to the asphalt corridor
+  // Hard-clamp the AI's position to the asphalt corridor so it can NEVER cut corners or enter grass
   let currentPosX = aiState.position.x;
   let currentPosZ = aiState.position.z;
   if (Math.abs(currentLatOffset) > maxSafeOffset) {
@@ -144,55 +193,91 @@ export function updateAICompetitor(params: AIUpdateParams): {
     currentLatOffset = clampedOffset;
   }
 
-  // 2. Short, Curve-Conforming Lookahead (NEVER cut across the infield)
-  // Look ahead only 2 to 5 segments (~6 to 15 meters) based on speed
-  const lookaheadCount = Math.max(2, Math.min(5, Math.round(currentSpeedMs * 0.12)));
-  const targetIdx = (nearestIndex + lookaheadCount) % n;
-  const targetSpline = splinePoints[targetIdx];
-
-  // 3. Racing Line & Overtake Offset
-  let targetLateralOffset = 0;
-  if (racingLinePoints && racingLinePoints.length === n) {
-    // Extract subtle apex offset if available
-    const rLinePos = racingLinePoints[targetIdx].position;
-    const offX = rLinePos.x - targetSpline.position.x;
-    const offZ = rLinePos.z - targetSpline.position.z;
-    const idealOffset = offX * targetSpline.binormal.x + offZ * targetSpline.binormal.z;
-    // Bound apex offset well inside track boundaries
-    targetLateralOffset = Math.max(-maxSafeOffset * 0.65, Math.min(maxSafeOffset * 0.65, idealOffset));
+  // 2. Adaptive Race Pacing (Pack Racing & High-Stakes Duel)
+  // If player pulls away by > 15m, AI enters PUSH mode (+10% pace, aggressive late-braking)
+  let pushFactor = 1.0;
+  if (playerProgressDiff > 12) {
+    pushFactor = Math.min(1.12, 1.0 + (playerProgressDiff - 12) * 0.0025);
+  } else if (playerProgressDiff < -35) {
+    // If AI is leading by 35+ meters, ease slightly so player can fight back
+    pushFactor = 0.95;
   }
 
-  // Player Proximity & Overtaking
-  const distToPlayer = Math.hypot(
-    playerPos.x - currentPosX,
-    playerPos.z - currentPosZ
-  );
+  // 3. Multi-Distance Braking Zone Scanner (Samples upcoming corners up to 90m ahead)
+  let targetSpeedMs = (difficulty === 'legend' ? 92.0 : (difficulty === 'rookie' ? 76.0 : 88.0)) * pushFactor;
+  const aBrake = 44.0; // F1 carbon-ceramic braking deceleration in m/s^2
 
-  let forceBraking = false;
-  if (distToPlayer < 24) {
-    const relX = playerPos.x - currentPosX;
-    const relZ = playerPos.z - currentPosZ;
-    const cosY = Math.cos(currentYaw);
-    const sinY = Math.sin(currentYaw);
+  const scanOffsets = [3, 6, 10, 15, 22, 30];
+  for (const s of scanOffsets) {
+    const idxB = (nearestIndex + s) % n;
+    const idxA = (idxB - 3 + n) % n;
+    const idxC = (idxB + 3) % n;
 
-    const localForward = relX * sinY + relZ * cosY; // Positive when player is ahead
-    const localLateral = relX * cosY - relZ * sinY; // Positive when player is to right
+    const pA = splinePoints[idxA].position;
+    const pB = splinePoints[idxB].position;
+    const pC = splinePoints[idxC].position;
 
-    if (localForward > 0 && localForward < 20) {
-      if (Math.abs(localLateral) < 3.0) {
-        // Player is directly ahead in AI's path: choose the open side to overtake
-        const overtakeSide = localLateral >= 0 ? -2.2 : 2.2;
-        targetLateralOffset = Math.max(-maxSafeOffset * 0.85, Math.min(maxSafeOffset * 0.85, overtakeSide));
+    const radius = computeCurvatureRadius(pA, pB, pC);
 
-        // If right behind player's gearbox and going faster, lift off to prevent collision
-        if (localForward < 4.5 && aiState.speedKmh > playerSpeedKmh) {
-          forceBraking = true;
-        }
+    if (radius < 220) {
+      const cornerSpeed = getTargetCornerSpeedMs(radius, difficulty) * pushFactor;
+      const distToCorner = s * (trackLength / n);
+      const brakeDistNeeded = Math.max(0, (currentSpeedMs * currentSpeedMs - cornerSpeed * cornerSpeed) / (2 * aBrake));
+
+      // Late braking margin: push later when chasing hard
+      const margin = pushFactor > 1.0 ? 3.0 : 5.0;
+      if (distToCorner <= brakeDistNeeded + margin) {
+        targetSpeedMs = Math.min(targetSpeedMs, cornerSpeed);
       }
     }
   }
 
-  // Final Target Point along the track curve
+  // 4. Short Curve-Conforming Lookahead (NEVER cuts across the infield)
+  const lookaheadCount = Math.max(2, Math.min(6, Math.round(currentSpeedMs * 0.12)));
+  const targetIdx = (nearestIndex + lookaheadCount) % n;
+  const targetSpline = splinePoints[targetIdx];
+
+  // 5. Racing Line, Slipstream Tow & Overtake Maneuvers
+  let targetLateralOffset = 0;
+  if (racingLinePoints && racingLinePoints.length === n) {
+    const rLinePos = racingLinePoints[targetIdx].position;
+    const offX = rLinePos.x - targetSpline.position.x;
+    const offZ = rLinePos.z - targetSpline.position.z;
+    const idealOffset = offX * targetSpline.binormal.x + offZ * targetSpline.binormal.z;
+    targetLateralOffset = Math.max(-maxSafeOffset * 0.6, Math.min(maxSafeOffset * 0.6, idealOffset));
+  }
+
+  const relX = playerPos.x - currentPosX;
+  const relZ = playerPos.z - currentPosZ;
+  const cosY = Math.cos(currentYaw);
+  const sinY = Math.sin(currentYaw);
+
+  const localForward = relX * sinY + relZ * cosY; // Distance ahead
+  const localLateral = relX * cosY - relZ * sinY; // Distance to side
+
+  // Slipstream / DRS Detection: Following within 5m to 48m behind player
+  let isDrafting = false;
+  let isOvertaking = false;
+
+  if (localForward > 4.0 && localForward < 48.0 && Math.abs(localLateral) < 4.5) {
+    isDrafting = true;
+  }
+
+  // Tactical Overtaking: Commit to open track lane when closing within 22m
+  if (localForward > 1.5 && localForward < 22.0) {
+    isOvertaking = true;
+    const overtakeSide = localLateral >= 0 ? -2.4 : 2.4;
+    targetLateralOffset = Math.max(-maxSafeOffset * 0.85, Math.min(maxSafeOffset * 0.85, overtakeSide));
+  }
+
+  // Defensive Racing Line: If AI is leading and player is right behind, defend inside apex
+  if (localForward < -3.0 && localForward > -25.0) {
+    if (Math.abs(targetLateralOffset) > 0.4) {
+      targetLateralOffset *= 1.25; // Hug inside line tighter
+    }
+  }
+
+  // Target Point on track curve with lane offset
   const targetBinormal = targetSpline.binormal;
   const targetPos = {
     x: targetSpline.position.x + targetBinormal.x * targetLateralOffset,
@@ -200,96 +285,75 @@ export function updateAICompetitor(params: AIUpdateParams): {
     z: targetSpline.position.z + targetBinormal.z * targetLateralOffset
   };
 
-  // 4. Authentic F1 Curvature Detection & Long Braking Zone Scanning (Up to 85m ahead)
-  let targetSpeedMs = 82.0; // 295 km/h on straights
-  const maxScanSegments = Math.min(30, Math.floor(n / 3));
+  // 6. Throttle & Braking Application with Slipstream Aero Boost
+  let driveAccel = (difficulty === 'legend' ? 44.0 : 41.0) * pushFactor;
+  let dragCoeff = 0.0018;
 
-  for (let s = 1; s <= maxScanSegments; s++) {
-    const idxA = (nearestIndex + s) % n;
-    const idxB = (nearestIndex + s + 2) % n;
-    const pA = splinePoints[idxA];
-    const pB = splinePoints[idxB];
-
-    const segDist = s * (trackLength / n); // approximate distance ahead in meters
-    const dot = pA.tangent.x * pB.tangent.x + pA.tangent.z * pB.tangent.z;
-    const angleChange = Math.acos(Math.max(-1, Math.min(1, dot)));
-
-    if (angleChange > 0.035) {
-      const arcLen = Math.hypot(pB.position.x - pA.position.x, pB.position.z - pA.position.z);
-      const radius = Math.max(12, arcLen / Math.max(0.001, angleChange));
-
-      // Maximum cornering speed: V = sqrt(mu * g * R), mu ≈ 2.2 with F1 downforce
-      const maxCornerSpeed = Math.min(82.0, Math.sqrt(2.2 * 9.81 * radius));
-
-      // Braking distance needed to decelerate from current speed to corner entry speed
-      const aBrake = 38.0; // F1 braking decel m/s^2
-      const brakeDist = Math.max(0, (currentSpeedMs * currentSpeedMs - maxCornerSpeed * maxCornerSpeed) / (2 * aBrake));
-
-      // Initiate braking when approaching the braking marker
-      if (segDist <= brakeDist + 6.0) {
-        targetSpeedMs = Math.min(targetSpeedMs, maxCornerSpeed);
-      }
-    }
+  if (isDrafting) {
+    // Sucking into the slipstream: lower drag, extra horsepower boost
+    dragCoeff *= 0.65;
+    driveAccel *= 1.18;
+    targetSpeedMs += 4.5; // ~+16 km/h top speed boost!
   }
 
-  if (forceBraking) {
-    targetSpeedMs = Math.min(targetSpeedMs, (playerSpeedKmh / 3.6) * 0.95);
-  }
-
-  // 5. Throttle & Braking Application
   let throttle = 0;
   let brake = 0;
 
-  if (currentSpeedMs < targetSpeedMs - 0.5) {
+  // Collision prevention: only ease throttle if literally touching the rear bumper
+  const touchingRearBumper = localForward > 0.5 && localForward < 2.5 && Math.abs(localLateral) < 1.6;
+
+  if (touchingRearBumper && aiState.speedKmh > playerSpeedKmh) {
+    throttle = 0.2;
+    brake = 0.35;
+  } else if (currentSpeedMs < targetSpeedMs - 0.4) {
+    // PIN 100% FULL THROTTLE!
     throttle = 1.0;
     brake = 0;
   } else if (currentSpeedMs > targetSpeedMs + 1.2) {
+    // HARD BRAKING INTO CORNER
     throttle = 0;
-    brake = Math.min(1.0, (currentSpeedMs - targetSpeedMs) * 0.25);
+    brake = Math.min(1.0, (currentSpeedMs - targetSpeedMs) * 0.28);
   } else {
-    throttle = 0.35;
+    // Maintain maximum cornering velocity
+    throttle = 0.85;
     brake = 0;
   }
 
-  const driveAccel = 36.0;
-  const brakeDecel = 46.0;
-  const drag = 0.0018 * currentSpeedMs * currentSpeedMs + 1.0;
-
+  const drag = dragCoeff * currentSpeedMs * currentSpeedMs + 1.0;
   let newSpeedMs = currentSpeedMs;
   if (throttle > 0) {
     newSpeedMs += (throttle * driveAccel - drag) * dt;
   } else if (brake > 0) {
-    newSpeedMs -= (brake * brakeDecel + drag) * dt;
+    newSpeedMs -= (brake * aBrake + drag) * dt;
   } else {
     newSpeedMs -= drag * dt;
   }
-  newSpeedMs = Math.max(0, Math.min(83.0, newSpeedMs));
+  newSpeedMs = Math.max(0, Math.min(95.0, newSpeedMs));
 
-  // 6. Stanley + Pure Pursuit Steering Controller (Heading + Cross-Track Damping)
+  // 7. Stanley + Pure Pursuit Steering Controller
   const targetYaw = Math.atan2(
     targetPos.x - currentPosX,
     targetPos.z - currentPosZ
   );
 
   const headingError = normalizeAngle(targetYaw - currentYaw);
-  // Cross-track error (difference between current offset and target lane)
   const crossTrackError = currentLatOffset - targetLateralOffset;
-  const crossTrackSteer = Math.atan2(-crossTrackError * 0.8, Math.max(6, currentSpeedMs));
+  const crossTrackSteer = Math.atan2(-crossTrackError * 0.85, Math.max(6, currentSpeedMs));
 
-  const steeringInput = Math.max(-1, Math.min(1, headingError * 2.5 + crossTrackSteer * 1.4));
+  const steeringInput = Math.max(-1, Math.min(1, headingError * 2.6 + crossTrackSteer * 1.5));
 
   // Responsive turn rate with high-speed stability
-  const turnRate = Math.max(1.6, 3.2 - (newSpeedMs / 83.0) * 1.2);
+  const turnRate = Math.max(1.7, 3.2 - (newSpeedMs / 88.0) * 1.1);
   const newYaw = currentYaw + steeringInput * turnRate * dt;
 
-  // 7. Update Position along Heading with Final Boundary Check
+  // 8. Update Position along Heading with Final Boundary Protection
   const dirX = Math.sin(newYaw);
   const dirZ = Math.cos(newYaw);
 
   let newPosX = currentPosX + dirX * newSpeedMs * dt;
   let newPosZ = currentPosZ + dirZ * newSpeedMs * dt;
 
-  // Re-verify lateral distance against road limits
+  // Re-verify lateral distance against asphalt boundaries
   const toNewX = newPosX - nearestP.position.x;
   const toNewZ = newPosZ - nearestP.position.z;
   const newLatOffset = toNewX * binormal.x + toNewZ * binormal.z;
@@ -302,14 +366,13 @@ export function updateAICompetitor(params: AIUpdateParams): {
   const targetY = nearestP.position.y || 0;
   const newPosY = aiState.position.y + (targetY + 0.05 - aiState.position.y) * (dt * 6.0);
 
-  // 8. Sector & Finish Line Tracking
+  // 9. Sector & Finish Line Tracking
   const startP = splinePoints[0];
   const vCurrX = newPosX - startP.position.x;
   const vCurrZ = newPosZ - startP.position.z;
   const sCurr = vCurrX * startP.tangent.x + vCurrZ * startP.tangent.z;
   const distFromStart = Math.hypot(vCurrX, vCurrZ);
 
-  // Check if AI has officially started and crossed start line
   let hasStarted = aiState.hasStartedRace ?? false;
   if (!hasStarted && sCurr >= 0) {
     hasStarted = true;
@@ -368,10 +431,13 @@ export function updateAICompetitor(params: AIUpdateParams): {
     brake,
     steering: steeringInput,
     offTrack: false,
-    skidding: Math.abs(steeringInput) > 0.7 && newSpeedMs > 30,
+    skidding: Math.abs(steeringInput) > 0.65 && newSpeedMs > 35,
     targetSpeedKmh: Math.round(targetSpeedMs * 3.6),
     lapTelemetry: nextTelemetry,
-    hasStartedRace: hasStarted
+    hasStartedRace: hasStarted,
+    difficulty,
+    isDrafting,
+    isOvertaking
   };
 
   return { nextAIState, crossedFinish: lineCrossed };

@@ -8,6 +8,8 @@ interface F1CarProps {
   carState: CarState;
   isAI?: boolean;
   liveryColor?: string;
+  isDrafting?: boolean;
+  isOvertaking?: boolean;
 }
 
 // Generates a soft, feathered radial shadow texture for realistic ground ambient occlusion
@@ -85,10 +87,18 @@ function ProceduralCarFallback({ color = '#E10600' }: { color?: string }) {
   );
 }
 
-export const F1Car: React.FC<F1CarProps> = ({ carState, isAI = false, liveryColor = '#00E5FF' }) => {
+export const F1Car: React.FC<F1CarProps> = ({
+  carState,
+  isAI = false,
+  liveryColor = '#00E5FF',
+  isDrafting = false,
+  isOvertaking = false
+}) => {
   const vehicleRootRef = useRef<THREE.Group | null>(null);
   const beaconRef = useRef<THREE.Group | null>(null);
   const shadowTexture = useMemo(() => createSoftShadowTexture(), []);
+
+  const activeBeaconColor = (isDrafting || isOvertaking) ? '#FF9100' : liveryColor;
 
   useFrame((_, delta) => {
     if (!vehicleRootRef.current) return;
@@ -105,7 +115,8 @@ export const F1Car: React.FC<F1CarProps> = ({ carState, isAI = false, liveryColo
     vehicleRootRef.current.rotation.set(rx, ry, rz);
 
     if (beaconRef.current) {
-      beaconRef.current.rotation.y += delta * 2.5;
+      const rotSpeed = (isDrafting || isOvertaking) ? 5.5 : 2.5;
+      beaconRef.current.rotation.y += delta * rotSpeed;
     }
   });
 
@@ -120,15 +131,19 @@ export const F1Car: React.FC<F1CarProps> = ({ carState, isAI = false, liveryColo
       {isAI && (
         <group ref={beaconRef} position={[0, 1.45, 0]}>
           <mesh rotation={[0, Math.PI / 4, 0]}>
-            <octahedronGeometry args={[0.16, 0]} />
+            <octahedronGeometry args={[isDrafting || isOvertaking ? 0.20 : 0.16, 0]} />
             <meshStandardMaterial
-              color={liveryColor}
-              emissive={liveryColor}
-              emissiveIntensity={0.9}
+              color={activeBeaconColor}
+              emissive={activeBeaconColor}
+              emissiveIntensity={isDrafting || isOvertaking ? 1.4 : 0.9}
               roughness={0.15}
             />
           </mesh>
-          <pointLight color={liveryColor} intensity={2.0} distance={5} />
+          <pointLight
+            color={activeBeaconColor}
+            intensity={isDrafting || isOvertaking ? 3.5 : 2.0}
+            distance={6}
+          />
         </group>
       )}
 
