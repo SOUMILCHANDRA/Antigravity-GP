@@ -12,6 +12,12 @@ class SoundEngine {
   private isMuted: boolean = true; // Muted by default
   private isInitialized: boolean = false;
 
+  // Rival AI Engine Audio Nodes
+  private rivalOsc: OscillatorNode | null = null;
+  private rivalFilter: BiquadFilterNode | null = null;
+  private rivalGain: GainNode | null = null;
+  private rivalPanner: StereoPannerNode | null = null;
+
   public init(): void {
     if (this.isInitialized) return;
     try {
@@ -36,6 +42,32 @@ class SoundEngine {
       this.engineGain.connect(this.ctx.destination);
 
       this.engineOsc.start();
+
+      // Rival AI Engine Setup (Slightly higher pitch screaming V10 tone)
+      this.rivalGain = this.ctx.createGain();
+      this.rivalGain.gain.setValueAtTime(0, this.ctx.currentTime);
+
+      this.rivalFilter = this.ctx.createBiquadFilter();
+      this.rivalFilter.type = 'lowpass';
+      this.rivalFilter.frequency.setValueAtTime(450, this.ctx.currentTime);
+
+      this.rivalOsc = this.ctx.createOscillator();
+      this.rivalOsc.type = 'sawtooth';
+      this.rivalOsc.frequency.setValueAtTime(75, this.ctx.currentTime);
+
+      if (this.ctx.createStereoPanner) {
+        this.rivalPanner = this.ctx.createStereoPanner();
+        this.rivalOsc.connect(this.rivalFilter);
+        this.rivalFilter.connect(this.rivalGain);
+        this.rivalGain.connect(this.rivalPanner);
+        this.rivalPanner.connect(this.ctx.destination);
+      } else {
+        this.rivalOsc.connect(this.rivalFilter);
+        this.rivalFilter.connect(this.rivalGain);
+        this.rivalGain.connect(this.ctx.destination);
+      }
+
+      this.rivalOsc.start();
 
       // Tire squeal setup
       this.setupTireSqueal();
@@ -101,6 +133,42 @@ class SoundEngine {
     }
   }
 
+  public updateRivalEngineSound(
+    rivalSpeedKmh: number,
+    rivalThrottle: number,
+    distanceMeters: number,
+    panX: number,
+    isRacing: boolean
+  ): void {
+    if (!this.isInitialized || !this.ctx || this.isMuted) return;
+
+    if (!isRacing || distanceMeters > 55) {
+      if (this.rivalGain) {
+        this.rivalGain.gain.setTargetAtTime(0, this.ctx.currentTime, 0.1);
+      }
+      return;
+    }
+
+    const normSpeed = Math.max(0, Math.min(1, Math.abs(rivalSpeedKmh) / 330));
+    const baseFreq = 75 + normSpeed * 380 + (rivalThrottle > 0 ? 40 : 0);
+
+    if (this.rivalOsc && this.rivalFilter && this.rivalGain) {
+      this.rivalOsc.frequency.setTargetAtTime(baseFreq, this.ctx.currentTime, 0.08);
+
+      const filterFreq = 380 + normSpeed * 2300 + (rivalThrottle > 0 ? 600 : 0);
+      this.rivalFilter.frequency.setTargetAtTime(filterFreq, this.ctx.currentTime, 0.08);
+
+      const falloff = 1 / (1 + distanceMeters * 0.08);
+      const targetVolume = (0.02 + normSpeed * 0.08 + (rivalThrottle > 0 ? 0.03 : 0)) * falloff;
+      this.rivalGain.gain.setTargetAtTime(targetVolume, this.ctx.currentTime, 0.08);
+
+      if (this.rivalPanner) {
+        const clampedPan = Math.max(-0.85, Math.min(0.85, panX));
+        this.rivalPanner.pan.setTargetAtTime(clampedPan, this.ctx.currentTime, 0.08);
+      }
+    }
+  }
+
   public updateTireSqueal(skidding: boolean): void {
     if (!this.isInitialized || !this.ctx || !this.squealGain || this.isMuted) return;
     const targetGain = skidding ? 0.08 : 0;
@@ -109,8 +177,9 @@ class SoundEngine {
 
   public toggleMute(): boolean {
     this.isMuted = !this.isMuted;
-    if (this.isMuted && this.engineGain) {
-      this.engineGain.gain.setValueAtTime(0, this.ctx?.currentTime || 0);
+    if (this.isMuted) {
+      if (this.engineGain) this.engineGain.gain.setValueAtTime(0, this.ctx?.currentTime || 0);
+      if (this.rivalGain) this.rivalGain.gain.setValueAtTime(0, this.ctx?.currentTime || 0);
     }
     return this.isMuted;
   }

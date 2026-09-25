@@ -293,6 +293,7 @@ export function App() {
           aiState: aiCarStateRef.current,
           playerPos: nextState.position,
           playerSpeedKmh: nextState.speedKmh,
+          playerThrottle: inputs.throttle,
           splinePoints,
           racingLinePoints,
           deltaSeconds: dt,
@@ -320,6 +321,24 @@ export function App() {
         );
         raceBattleStateRef.current = newBattle;
         setRaceBattleState(newBattle);
+
+        // 5. Update Spatial Rival Engine Audio
+        const dx = resolvedAI.position.x - nextState.position.x;
+        const dz = resolvedAI.position.z - nextState.position.z;
+        const dist = Math.hypot(dx, dz);
+        const yaw = nextState.rotation.y;
+        const localX = dx * Math.cos(yaw) - dz * Math.sin(yaw);
+        const panX = Math.max(-1, Math.min(1, localX / Math.max(3, dist)));
+
+        audioEngine.updateRivalEngineSound(
+          resolvedAI.speedKmh,
+          resolvedAI.throttle,
+          dist,
+          panX,
+          true
+        );
+      } else {
+        audioEngine.updateRivalEngineSound(0, 0, 999, 0, false);
       }
 
       const prevPos = { ...prevCarPosRef.current };
