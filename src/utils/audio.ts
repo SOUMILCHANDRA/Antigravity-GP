@@ -104,7 +104,7 @@ class SoundEngine {
     noiseSource.start();
   }
 
-  public updateEngineSound(speedKmh: number, throttle: number, isRacing: boolean): void {
+  public updateEngineSound(speedKmh: number, throttle: number, isRacing: boolean, carId?: string): void {
     if (!this.isInitialized || !this.ctx || this.isMuted) return;
 
     if (this.ctx.state === 'suspended') {
@@ -118,14 +118,40 @@ class SoundEngine {
       return;
     }
 
-    // Map speed (0 -> 320 km/h) to pitch (60 Hz -> 420 Hz)
-    const normSpeed = Math.max(0, Math.min(1, speedKmh / 320));
-    const baseFreq = 65 + normSpeed * 350 + throttle * 40;
+    // Adjust frequencies based on car archetype
+    let baseOffset = 65;
+    let pitchRange = 350;
+    let cutoff = 2200;
+
+    if (carId === 'ferrari_312_1967') {
+      baseOffset = 80;
+      pitchRange = 390; // Screaming classic V12
+      cutoff = 2600;
+    } else if (carId === 'lotus_72d_1972') {
+      baseOffset = 68;
+      pitchRange = 330; // Raw Cosworth V8
+      cutoff = 2100;
+    } else if (carId === 'mclaren_mp45_1989') {
+      baseOffset = 85;
+      pitchRange = 410; // High-revving 12,800 RPM V10
+      cutoff = 2800;
+    } else if (carId === 'ferrari_f40_1989') {
+      baseOffset = 55;
+      pitchRange = 320; // Deep twin-turbo V8
+      cutoff = 1900;
+    } else if (carId === 'ferrari_f1_2014') {
+      baseOffset = 70;
+      pitchRange = 360; // Modern V6 Turbo Hybrid
+      cutoff = 2400;
+    }
+
+    const normSpeed = Math.max(0, Math.min(1, speedKmh / 350));
+    const baseFreq = baseOffset + normSpeed * pitchRange + throttle * 45;
 
     if (this.engineOsc && this.engineFilter && this.engineGain) {
       this.engineOsc.frequency.setTargetAtTime(baseFreq, this.ctx.currentTime, 0.08);
 
-      const filterFreq = 350 + normSpeed * 2200 + throttle * 800;
+      const filterFreq = 350 + normSpeed * cutoff + throttle * 800;
       this.engineFilter.frequency.setTargetAtTime(filterFreq, this.ctx.currentTime, 0.08);
 
       const targetVolume = 0.03 + throttle * 0.12 + normSpeed * 0.05;
@@ -138,7 +164,8 @@ class SoundEngine {
     rivalThrottle: number,
     distanceMeters: number,
     panX: number,
-    isRacing: boolean
+    isRacing: boolean,
+    carId?: string
   ): void {
     if (!this.isInitialized || !this.ctx || this.isMuted) return;
 
@@ -149,8 +176,18 @@ class SoundEngine {
       return;
     }
 
-    const normSpeed = Math.max(0, Math.min(1, Math.abs(rivalSpeedKmh) / 330));
-    const baseFreq = 75 + normSpeed * 380 + (rivalThrottle > 0 ? 40 : 0);
+    let baseOffset = 75;
+    let pitchRange = 380;
+    if (carId === 'ferrari_f1_2014') {
+      baseOffset = 75;
+      pitchRange = 370;
+    } else if (carId === 'ferrari_f40_1989') {
+      baseOffset = 58;
+      pitchRange = 320;
+    }
+
+    const normSpeed = Math.max(0, Math.min(1, Math.abs(rivalSpeedKmh) / 350));
+    const baseFreq = baseOffset + normSpeed * pitchRange + (rivalThrottle > 0 ? 40 : 0);
 
     if (this.rivalOsc && this.rivalFilter && this.rivalGain) {
       this.rivalOsc.frequency.setTargetAtTime(baseFreq, this.ctx.currentTime, 0.08);

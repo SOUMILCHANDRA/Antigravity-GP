@@ -1,6 +1,7 @@
 import { AIDifficulty, LapTelemetry, RaceBattleState } from '../../types/track';
 import { formatTime } from '../../utils/time';
-import { Timer, Trophy, Gauge, AlertTriangle, Route, CheckCircle, RotateCcw, Swords, Flame } from 'lucide-react';
+import { Timer, Trophy, Gauge, AlertTriangle, Route, CheckCircle, RotateCcw, Swords, Flame, Car } from 'lucide-react';
+import { CAR_PRESETS, DEFAULT_PLAYER_CAR_ID } from '../../utils/carPresets';
 
 export { formatTime };
 
@@ -20,6 +21,8 @@ interface RaceHUDProps {
   onChangeDifficulty?: () => void;
   isDrafting?: boolean;
   isOvertaking?: boolean;
+  playerCarId?: string;
+  onOpenGarage?: () => void;
   carState?: {
     speedKmh: number;
     throttle: number;
@@ -46,10 +49,13 @@ export const RaceHUD: React.FC<RaceHUDProps> = ({
   onChangeDifficulty,
   isDrafting = false,
   isOvertaking = false,
+  playerCarId = DEFAULT_PLAYER_CAR_ID,
+  onOpenGarage,
   carState
 }) => {
   const isReverse = speedKmh < 0;
   const absSpeed = Math.abs(speedKmh);
+  const currentCar = CAR_PRESETS[playerCarId] || CAR_PRESETS[DEFAULT_PLAYER_CAR_ID];
 
   const difficultyColors = {
     rookie: 'border-emerald-500/60 text-emerald-400 bg-emerald-950/40',
@@ -110,6 +116,18 @@ export const RaceHUD: React.FC<RaceHUDProps> = ({
           >
             {difficulty === 'legend' && <Flame className="w-3.5 h-3.5 text-amber-400 animate-pulse" />}
             <span>{difficulty.toUpperCase()}</span>
+          </button>
+        )}
+
+        {/* Garage Car Selection Button */}
+        {onOpenGarage && (
+          <button
+            onClick={onOpenGarage}
+            title={`Active Car: ${currentCar.name} (${currentCar.badge}). Click to open Garage.`}
+            className="px-3.5 py-2.5 rounded-2xl border bg-[#0E131F]/90 hover:bg-[#151D2E] border-[#1E2638] text-slate-300 hover:text-white transition-all flex items-center gap-2 active:scale-95 cursor-pointer shadow-lg"
+          >
+            <Car className="w-4 h-4 text-red-500" />
+            <span className="text-xs font-bold font-sans">{currentCar.shortName}</span>
           </button>
         )}
 

@@ -1,6 +1,7 @@
 import { AICompetitorState, AIDifficulty, CarState, LapTelemetry, RaceBattleState, SplinePoint, Vector3D } from '../types/track';
 import { getNearestSplinePoint, checkFinishLineCrossing } from './spline';
 import { RacingLinePoint } from './racingLine';
+import { CAR_PRESETS, DEFAULT_AI_CAR_ID } from './carPresets';
 
 export const INITIAL_AI_TELEMETRY: LapTelemetry = {
   currentLapTime: 0,
@@ -16,8 +17,12 @@ export const INITIAL_AI_TELEMETRY: LapTelemetry = {
  */
 export function createAICompetitor(
   splinePoints: SplinePoint[],
-  difficulty: AIDifficulty = 'challenger'
+  difficulty: AIDifficulty = 'challenger',
+  carId: string = DEFAULT_AI_CAR_ID
 ): AICompetitorState {
+  const specs = CAR_PRESETS[carId] || CAR_PRESETS[DEFAULT_AI_CAR_ID];
+  const aiColor = specs.aiDefaultColor || '#00E5FF';
+
   if (splinePoints.length < 2) {
     return {
       position: { x: 0, y: 0.1, z: -8.5 },
@@ -29,14 +34,15 @@ export function createAICompetitor(
       steering: 0,
       offTrack: false,
       skidding: false,
-      name: 'APEX AI #02',
-      color: '#00E5FF',
+      name: `RIVAL [${specs.shortName}]`,
+      color: aiColor,
       targetSpeedKmh: 0,
       lapTelemetry: { ...INITIAL_AI_TELEMETRY },
       hasStartedRace: false,
       difficulty,
       isDrafting: false,
-      isOvertaking: false
+      isOvertaking: false,
+      carId
     };
   }
 
@@ -67,14 +73,15 @@ export function createAICompetitor(
     steering: 0,
     offTrack: false,
     skidding: false,
-    name: 'APEX AI #02',
-    color: '#00E5FF',
+    name: `RIVAL [${specs.shortName}]`,
+    color: aiColor,
     targetSpeedKmh: 0,
     lapTelemetry: { ...INITIAL_AI_TELEMETRY },
     hasStartedRace: false,
     difficulty,
     isDrafting: false,
-    isOvertaking: false
+    isOvertaking: false,
+    carId
   };
 }
 
@@ -225,7 +232,10 @@ export function updateAICompetitor(params: AIUpdateParams): {
     currentLatOffset = clampedOffset;
   }
 
-  // 3. Dynamic Push Factor (Adaptive Racing Pacing)
+  // 3. Dynamic Push Factor & Car Specs
+  const aiSpecs = CAR_PRESETS[aiState.carId || DEFAULT_AI_CAR_ID] || CAR_PRESETS[DEFAULT_AI_CAR_ID];
+  const aiPhys = aiSpecs.physics;
+
   // When chasing player, AI pushes hard in qualifying pace (+14% performance boost)
   let pushFactor = 1.0;
   if (playerProgressDiff > 6) {
@@ -235,9 +245,11 @@ export function updateAICompetitor(params: AIUpdateParams): {
     pushFactor = 0.94;
   }
 
-  // 4. Multi-Distance Carbon Ceramic Braking Zone Scanner
-  const aBrake = difficulty === 'legend' ? 48.0 : (difficulty === 'rookie' ? 40.0 : 45.0);
-  let targetSpeedMs = (difficulty === 'legend' ? 94.0 : (difficulty === 'rookie' ? 76.0 : 88.0)) * pushFactor;
+  // 4. Multi-Distance Braking Zone Scanner adapted to Car Physics
+  const baseBrakeDecel = aiPhys.brakeDecel * 0.88;
+  const aBrake = difficulty === 'legend' ? baseBrakeDecel * 1.08 : (difficulty === 'rookie' ? baseBrakeDecel * 0.88 : baseBrakeDecel);
+  const baseMaxSpeedMs = aiPhys.maxForwardSpeedMs;
+  let targetSpeedMs = (difficulty === 'legend' ? baseMaxSpeedMs : (difficulty === 'rookie' ? baseMaxSpeedMs * 0.82 : baseMaxSpeedMs * 0.94)) * pushFactor;
 
   const scanOffsets = [2, 4, 7, 11, 16, 22, 29, 37];
   for (const s of scanOffsets) {
@@ -252,7 +264,7 @@ export function updateAICompetitor(params: AIUpdateParams): {
     const radius = computeCurvatureRadius(pA, pB, pC);
 
     if (radius < 260) {
-      const cornerSpeed = getTargetCornerSpeedMs(radius, difficulty) * pushFactor;
+      const cornerSpeed = getTargetCornerSpeedMs(radius, difficulty) * pushFactor * (aiPhys.gripMultiplier || 1.0);
       const distToCorner = s * (trackLength / n);
       const brakeDistNeeded = Math.max(0, (currentSpeedMs * currentSpeedMs - cornerSpeed * cornerSpeed) / (2 * aBrake));
 
@@ -349,8 +361,9 @@ export function updateAICompetitor(params: AIUpdateParams): {
   };
 
   // 8. Throttle & Braking Dynamics with DRS Boost
-  let driveAccel = (difficulty === 'legend' ? 44.0 : (difficulty === 'rookie' ? 36.0 : 41.0)) * pushFactor;
-  let dragCoeff = 0.0018;
+  const baseDriveAccel = aiPhys.maxDriveAccel;
+  let driveAccel = (difficulty === 'legend' ? baseDriveAccel * 1.06 : (difficulty === 'rookie' ? baseDriveAccel * 0.88 : baseDriveAccel)) * pushFactor;
+  let dragCoeff = aiPhys.dragCoeff;
 
   if (isDrafting) {
     dragCoeff *= 0.60;     // 40% drag reduction in tow
@@ -390,7 +403,7 @@ export function updateAICompetitor(params: AIUpdateParams): {
   } else {
     newSpeedMs -= drag * dt;
   }
-  newSpeedMs = Math.max(0, Math.min(96.0, newSpeedMs));
+  newSpeedMs = Math.max(0, Math.min(aiPhys.maxForwardSpeedMs, newSpeedMs));
 
   // 9. Pure Pursuit + Curvature Feedforward Steering Controller
   const dx = targetPos.x - currentPosX;

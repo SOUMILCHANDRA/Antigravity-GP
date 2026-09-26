@@ -1,5 +1,6 @@
 import { CarState, SplinePoint } from '../types/track';
 import { getNearestSplinePoint, getTrackSpawnTransform } from './spline';
+import { CAR_PRESETS, CarSpecs, DEFAULT_PLAYER_CAR_ID } from './carPresets';
 
 export interface CarControlInputs {
   throttle: boolean; // Accelerate W / Up
@@ -9,7 +10,7 @@ export interface CarControlInputs {
   reset: boolean;    // Reset R
 }
 
-export function createInitialCarState(): CarState {
+export function createInitialCarState(carId: string = DEFAULT_PLAYER_CAR_ID): CarState {
   return {
     position: { x: 0, y: 0.10, z: 0 },
     rotation: { x: 0, y: 0, z: 0 },
@@ -19,7 +20,8 @@ export function createInitialCarState(): CarState {
     brake: 0,
     steering: 0,
     offTrack: false,
-    skidding: false
+    skidding: false,
+    carId
   };
 }
 
@@ -27,7 +29,7 @@ export function createInitialCarState(): CarState {
  * Single Authoritative Reset Function: Resets position, rotation, velocity, speed, throttle, and steering.
  */
 export function resetVehicle(carState: CarState, splinePoints: SplinePoint[]): CarState {
-  if (splinePoints.length < 2) return createInitialCarState();
+  if (splinePoints.length < 2) return createInitialCarState(carState.carId);
 
   const spawn = getTrackSpawnTransform(splinePoints);
 
@@ -40,7 +42,8 @@ export function resetVehicle(carState: CarState, splinePoints: SplinePoint[]): C
     brake: 0,
     steering: 0,
     offTrack: false,
-    skidding: false
+    skidding: false,
+    carId: carState.carId
   };
 }
 
@@ -48,8 +51,12 @@ export function updateCarPhysics(
   currentState: CarState,
   inputs: CarControlInputs,
   splinePoints: SplinePoint[],
-  deltaSeconds: number
+  deltaSeconds: number,
+  carSpecs?: CarSpecs
 ): CarState {
+  const specs = carSpecs || CAR_PRESETS[currentState.carId || DEFAULT_PLAYER_CAR_ID] || CAR_PRESETS[DEFAULT_PLAYER_CAR_ID];
+  const p = specs.physics;
+
   // Guard delta time against 0, NaN, or large spikes
   const rawDt = isNaN(deltaSeconds) ? 0.016 : deltaSeconds;
   const dt = Math.max(0.001, Math.min(rawDt, 0.05));
@@ -85,17 +92,20 @@ export function updateCarPhysics(
   const currentSpeedKmh = isNaN(currentState.speedKmh) ? 0 : currentState.speedKmh;
   let currentSpeedMs = currentSpeedKmh / 3.6;
 
-  // Performance parameters (1989 McLaren MP4/5 F1 Specs)
-  const maxDriveAccel = 42.0;      // m/s^2 (0-100 km/h in 2.5s)
-  const brakeDecel = 52.0;         // m/s^2 (F1 Carbon-Ceramic Brakes)
-  const reverseAccel = 16.0;       // m/s^2
-  const reverseMaxSpeedMs = -12.0; // -43 km/h
-  const maxForwardSpeedMs = 95.0;  // 342 km/h
-  const dragCoeff = 0.0020;
-  const rollingFriction = 1.2;
+  // Performance parameters from CarSpecs
+  const maxDriveAccel = p.maxDriveAccel;
+  const brakeDecel = p.brakeDecel;
+  const reverseAccel = p.reverseAccel;
+  const reverseMaxSpeedMs = p.reverseMaxSpeedMs;
+  const maxForwardSpeedMs = p.maxForwardSpeedMs;
+  const dragCoeff = p.dragCoeff;
+  const rollingFriction = p.rollingFriction;
+  const engineBrakingVal = p.engineBraking;
+  const gripMultiplier = p.gripMultiplier;
 
-  // Surface Grip: 1.0 on track, 0.90 on kerbs, 0.45 in loose sand/gravel
-  const surfaceGrip = isInGravel ? 0.45 : (isOnKerb ? 0.90 : 1.0);
+  // Surface Grip: base grip adjusted by tire/aero multiplier
+  const baseSurfaceGrip = isInGravel ? 0.45 : (isOnKerb ? 0.90 : 1.0);
+  const surfaceGrip = baseSurfaceGrip * (isOnTrack ? gripMultiplier : 1.0);
 
   // Natural aerodynamic drag
   const dragForce = dragCoeff * currentSpeedMs * currentSpeedMs + rollingFriction;
@@ -108,7 +118,7 @@ export function updateCarPhysics(
       newSpeedMs = Math.min(0, currentSpeedMs + brakeDecel * surfaceGrip * dt);
     } else {
       // Forward drive with gravel penalty if in sand/gravel
-      const gravelDrivePenalty = isInGravel ? 0.35 : 1.0;
+      const gravelDrivePenalty = isInGravel ? p.gravelPenalty : 1.0;
       const engineForce = throttle * maxDriveAccel * gravelDrivePenalty;
       const gravelResistance = isInGravel ? 14.0 : 0;
       const netAccel = (engineForce - dragForce - gravelResistance) * surfaceGrip;
@@ -127,15 +137,13 @@ export function updateCarPhysics(
     }
   } else {
     // Engine Braking & Coasting Deceleration (When off-throttle, speed drops smoothly all the way to 0)
-    // F1 V10 high-compression engine compression braking + rolling resistance
-    const engineBraking = 7.5; // m/s^2 natural engine compression braking
     const gravelDrag = isInGravel ? 18.0 : 0; // Heavy loose sand resistance
-    const totalCoastDecel = dragForce + engineBraking + gravelDrag;
+    const totalCoastDecel = dragForce + engineBrakingVal + gravelDrag;
 
     if (currentSpeedMs > 0.15) {
       newSpeedMs = Math.max(0, currentSpeedMs - totalCoastDecel * dt);
     } else if (currentSpeedMs < -0.15) {
-      newSpeedMs = Math.min(0, currentSpeedMs + (engineBraking + 2.0) * dt);
+      newSpeedMs = Math.min(0, currentSpeedMs + (engineBrakingVal + 2.0) * dt);
     } else {
       newSpeedMs = 0;
     }
@@ -150,7 +158,7 @@ export function updateCarPhysics(
   if (newSpeedMs > maxForwardSpeedMs) newSpeedMs = maxForwardSpeedMs;
   if (isNaN(newSpeedMs)) newSpeedMs = 0;
 
-  // 5. Responsive Steering Math (High turn rate at low speed, stable at high speed)
+  // 5. Responsive Steering Math (Scaled per car handling profile)
   const currentYaw = isNaN(currentState.rotation.y) ? 0 : currentState.rotation.y;
   const absSpeedMs = Math.abs(newSpeedMs);
   let turnRate = 0;
@@ -159,15 +167,15 @@ export function updateCarPhysics(
     if (absSpeedMs < 11.0) {
       // 0 - 40 km/h: Nimble, allows tight hairpins and turning around
       const rollFactor = Math.min(1.0, absSpeedMs / 0.5);
-      turnRate = (2.4 - (absSpeedMs / 11.0) * 0.6) * rollFactor;
+      turnRate = (2.4 - (absSpeedMs / 11.0) * 0.6) * rollFactor * p.turnRateScale;
     } else if (absSpeedMs < 33.0) {
       // 40 - 120 km/h: Responsive cornering
       const ratio = (absSpeedMs - 11.0) / 22.0;
-      turnRate = 1.8 - ratio * 0.7;
+      turnRate = (1.8 - ratio * 0.7) * p.turnRateScale;
     } else {
-      // 120 - 340 km/h: Aerodynamic high-speed stability
+      // 120 - 360 km/h: Aerodynamic high-speed stability
       const ratio = Math.min(1.0, (absSpeedMs - 33.0) / 55.0);
-      turnRate = Math.max(0.8, 1.1 - ratio * 0.3);
+      turnRate = Math.max(0.7, (1.1 - ratio * 0.3) * p.turnRateScale);
     }
   }
 

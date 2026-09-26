@@ -1,14 +1,15 @@
 import React from 'react';
 import { 
   Pencil, 
-  Flag, 
   Volume2, 
   VolumeX, 
   Download, 
   Upload,
-  Play
+  Play,
+  Car
 } from 'lucide-react';
 import { AppMode, TrackConfig } from '../types/track';
+import { CAR_PRESETS, DEFAULT_PLAYER_CAR_ID } from '../utils/carPresets';
 
 interface HeaderProps {
   mode: AppMode;
@@ -19,6 +20,8 @@ interface HeaderProps {
   onExportTrack: () => void;
   onImportTrack: (e: React.ChangeEvent<HTMLInputElement>) => void;
   circuitLength: number;
+  playerCarId: string;
+  onOpenGarage: () => void;
 }
 
 export const Header: React.FC<HeaderProps> = ({
@@ -29,9 +32,12 @@ export const Header: React.FC<HeaderProps> = ({
   onToggleMute,
   onExportTrack,
   onImportTrack,
-  circuitLength
+  circuitLength,
+  playerCarId,
+  onOpenGarage
 }) => {
   const isValidTrack = currentTrack.isClosed && currentTrack.nodes.length >= 3;
+  const currentCar = CAR_PRESETS[playerCarId] || CAR_PRESETS[DEFAULT_PLAYER_CAR_ID];
 
   return (
     <header className="h-16 bg-[#0E131F] border-b border-[#1E2638] px-6 flex items-center justify-between z-40 select-none font-sans">
@@ -84,7 +90,20 @@ export const Header: React.FC<HeaderProps> = ({
       </div>
 
       {/* Right Stats & Tools */}
-      <div className="flex items-center gap-4">
+      <div className="flex items-center gap-3">
+        {/* Garage Car Selector Button */}
+        <button
+          onClick={onOpenGarage}
+          title="Open Garage: Choose vehicle & AI rival"
+          className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-[#141B2A] hover:bg-[#1A2338] border border-[#232E47] text-xs font-mono text-slate-200 transition-all hover:border-slate-400 group cursor-pointer"
+        >
+          <Car className="w-3.5 h-3.5 text-red-500 group-hover:scale-110 transition-transform" />
+          <div className="flex items-center gap-1.5">
+            <span className="text-[10px] text-slate-400 font-bold uppercase">CAR:</span>
+            <span className="font-extrabold text-white">{currentCar.shortName}</span>
+          </div>
+        </button>
+
         {/* Dynamic Circuit Stats (Shows — when empty) */}
         <div className="hidden md:flex items-center gap-3 px-3.5 py-1.5 rounded-lg bg-[#121721] border border-[#1E2638] text-xs font-mono">
           <span className="text-slate-400">LENGTH:</span>

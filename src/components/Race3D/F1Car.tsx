@@ -1,8 +1,11 @@
 import React, { useRef, useMemo, Suspense } from 'react';
-import { useFrame } from '@react-three/fiber';
+import { useFrame, useLoader } from '@react-three/fiber';
 import { useGLTF } from '@react-three/drei';
 import * as THREE from 'three';
+import { OBJLoader } from 'three/examples/jsm/loaders/OBJLoader.js';
+import { MTLLoader } from 'three/examples/jsm/loaders/MTLLoader.js';
 import { CarState } from '../../types/track';
+import { CAR_PRESETS, CarSpecs, DEFAULT_PLAYER_CAR_ID, DEFAULT_AI_CAR_ID } from '../../utils/carPresets';
 
 interface F1CarProps {
   carState: CarState;
@@ -30,12 +33,17 @@ function createSoftShadowTexture(): THREE.CanvasTexture {
   return new THREE.CanvasTexture(canvas);
 }
 
-// Phase 4: Model's native forward orientation in GLB (nose is at +Z)
-export const MODEL_FORWARD_OFFSET = 0;
-
-// Visual McLaren GLB Model Component
-function McLarenCarModel({ isAI = false, liveryColor = '#00E5FF' }: { isAI?: boolean; liveryColor?: string }) {
-  const { scene } = useGLTF('/mclaren_mp45.glb');
+// GLB Car Model Renderer with dynamic AI livery tinting
+function GLBCarModel({
+  modelPath,
+  isAI = false,
+  liveryColor = '#00E5FF'
+}: {
+  modelPath: string;
+  isAI?: boolean;
+  liveryColor?: string;
+}) {
+  const { scene } = useGLTF(modelPath);
 
   const clonedScene = useMemo(() => {
     const clone = scene.clone(true);
@@ -56,7 +64,15 @@ function McLarenCarModel({ isAI = false, liveryColor = '#00E5FF' }: { isAI?: boo
           mats.forEach(mat => {
             if (mat && 'color' in mat) {
               const stdMat = mat as THREE.MeshStandardMaterial;
-              if (stdMat.name === 'body_mat' || stdMat.name.includes('body')) {
+              const n = (stdMat.name || mesh.name || '').toLowerCase();
+              if (
+                n.includes('body') ||
+                n.includes('paint') ||
+                n.includes('chassis') ||
+                n.includes('coloured') ||
+                n.includes('meshpart1') ||
+                n.includes('car_chassis')
+              ) {
                 stdMat.color.set(liveryColor);
                 if ('metalness' in stdMat) stdMat.metalness = 0.85;
                 if ('roughness' in stdMat) stdMat.roughness = 0.25;
@@ -69,18 +85,74 @@ function McLarenCarModel({ isAI = false, liveryColor = '#00E5FF' }: { isAI?: boo
     return clone;
   }, [scene, isAI, liveryColor]);
 
-  return (
-    <primitive
-      object={clonedScene}
-    />
-  );
+  return <primitive object={clonedScene} />;
 }
 
-// Fallback Procedural Car (Real F1 proportions: 4.4m length, 2.1m width, 1.0m height)
+// OBJ Car Model Renderer for 2014 Ferrari F1
+function OBJCarModel({
+  objPath,
+  mtlPath,
+  isAI = false,
+  liveryColor = '#00E5FF'
+}: {
+  objPath: string;
+  mtlPath: string;
+  isAI?: boolean;
+  liveryColor?: string;
+}) {
+  const materials = useLoader(MTLLoader, mtlPath);
+  const obj = useLoader(OBJLoader, objPath, (loader) => {
+    materials.preload();
+    loader.setMaterials(materials);
+  });
+
+  const clonedObj = useMemo(() => {
+    const clone = obj.clone(true);
+    const toRemove: THREE.Object3D[] = [];
+
+    clone.traverse((child) => {
+      // Remove ground plane element from 3D model
+      if (child.name === 'Plane') {
+        toRemove.push(child);
+      }
+      if ((child as THREE.Mesh).isMesh) {
+        const mesh = child as THREE.Mesh;
+        mesh.castShadow = true;
+        mesh.receiveShadow = true;
+
+        if (isAI) {
+          if (Array.isArray(mesh.material)) {
+            mesh.material = mesh.material.map(m => m.clone());
+          } else if (mesh.material) {
+            mesh.material = mesh.material.clone();
+          }
+
+          const mats = Array.isArray(mesh.material) ? mesh.material : [mesh.material];
+          mats.forEach(mat => {
+            if (mat && 'color' in mat) {
+              const stdMat = mat as THREE.MeshStandardMaterial;
+              const n = (stdMat.name || mesh.name || '').toLowerCase();
+              if (n.includes('fe0_main') || n.includes('body') || n.includes('paint') || n.includes('front_bumper')) {
+                stdMat.color.set(liveryColor);
+              }
+            }
+          });
+        }
+      }
+    });
+
+    toRemove.forEach(c => c.parent && c.parent.remove(c));
+    return clone;
+  }, [obj, isAI, liveryColor]);
+
+  return <primitive object={clonedObj} />;
+}
+
+// Fallback Procedural Car (Real proportions: 4.4m length, 2.0m width, 1.0m height)
 function ProceduralCarFallback({ color = '#E10600' }: { color?: string }) {
   return (
     <mesh position={[0, 0.35, 0]} castShadow>
-      <boxGeometry args={[2.1, 0.6, 4.4]} />
+      <boxGeometry args={[2.0, 0.6, 4.4]} />
       <meshStandardMaterial color={color} metalness={0.7} roughness={0.2} />
     </mesh>
   );
@@ -89,7 +161,7 @@ function ProceduralCarFallback({ color = '#E10600' }: { color?: string }) {
 export const F1Car: React.FC<F1CarProps> = ({
   carState,
   isAI = false,
-  liveryColor = '#00E5FF',
+  liveryColor,
   isDrafting = false,
   isOvertaking = false
 }) => {
@@ -98,7 +170,12 @@ export const F1Car: React.FC<F1CarProps> = ({
   const beaconRef = useRef<THREE.Group | null>(null);
   const shadowTexture = useMemo(() => createSoftShadowTexture(), []);
 
-  const activeBeaconColor = (isDrafting || isOvertaking) ? '#FF9100' : liveryColor;
+  // Determine car specifications
+  const activeCarId = carState.carId || (isAI ? DEFAULT_AI_CAR_ID : DEFAULT_PLAYER_CAR_ID);
+  const specs: CarSpecs = CAR_PRESETS[activeCarId] || CAR_PRESETS[DEFAULT_PLAYER_CAR_ID];
+  const effectiveLiveryColor = liveryColor || (isAI ? specs.aiDefaultColor : specs.liveryColor);
+
+  const activeBeaconColor = (isDrafting || isOvertaking) ? '#FF9100' : effectiveLiveryColor;
 
   // Authoritative rendering of CarState into Three.js object (no physics writeback)
   useFrame((_, delta) => {
@@ -124,10 +201,27 @@ export const F1Car: React.FC<F1CarProps> = ({
   return (
     // VehicleRoot: Controls world position, physics yaw, and motion
     <group ref={vehicleRootRef}>
-      {/* CarVisual Container: Scaled 0.60x to match true real-world F1 dimensions (4.45m length, 2.14m width) */}
-      <group rotation={[0, MODEL_FORWARD_OFFSET, 0]} scale={[0.60, 0.60, 0.60]}>
-        <Suspense fallback={<ProceduralCarFallback color={isAI ? liveryColor : '#E10600'} />}>
-          <McLarenCarModel isAI={isAI} liveryColor={liveryColor} />
+      {/* CarVisual Container: Scaled and rotated to match true real-world 1:1 dimensions and face forward +Z */}
+      <group
+        rotation={specs.rotationOffset}
+        scale={specs.scale}
+        position={specs.positionOffset}
+      >
+        <Suspense fallback={<ProceduralCarFallback color={effectiveLiveryColor} />}>
+          {specs.modelType === 'obj' && specs.objMtlPath ? (
+            <OBJCarModel
+              objPath={specs.modelPath}
+              mtlPath={specs.objMtlPath}
+              isAI={isAI}
+              liveryColor={effectiveLiveryColor}
+            />
+          ) : (
+            <GLBCarModel
+              modelPath={specs.modelPath}
+              isAI={isAI}
+              liveryColor={effectiveLiveryColor}
+            />
+          )}
         </Suspense>
       </group>
 
@@ -165,4 +259,8 @@ export const F1Car: React.FC<F1CarProps> = ({
   );
 };
 
+// Preload GLB models
 useGLTF.preload('/mclaren_mp45.glb');
+useGLTF.preload('/1967_ferrari_312.glb');
+useGLTF.preload('/1972_lotus_72d.glb');
+useGLTF.preload('/1989_ferrari_f40_competizione.glb');

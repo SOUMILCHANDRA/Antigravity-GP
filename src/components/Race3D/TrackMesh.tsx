@@ -1,5 +1,6 @@
 import React, { useMemo } from 'react';
 import * as THREE from 'three';
+import { useGLTF } from '@react-three/drei';
 import { SplinePoint, TrackConfig } from '../../types/track';
 
 function createCheckeredTexture(): THREE.CanvasTexture {
@@ -31,6 +32,82 @@ function createCheckeredTexture(): THREE.CanvasTexture {
 interface TrackMeshProps {
   splinePoints: SplinePoint[];
   trackConfig: TrackConfig;
+}
+
+// Trackside 3D Barriers from modular_track_roads_free.glb
+function ModularTrackBarriers({ splinePoints }: { splinePoints: SplinePoint[] }) {
+  const { scene } = useGLTF('/modular_track_roads_free.glb');
+
+  // Extract fence mesh and tyre barrier meshes
+  const barrierMeshes = useMemo(() => {
+    let fenceGeom: THREE.BufferGeometry | null = null;
+    let redBlockGeom: THREE.BufferGeometry | null = null;
+    let whiteBlockGeom: THREE.BufferGeometry | null = null;
+    let material: THREE.Material | THREE.Material[] | null = null;
+
+    scene.traverse((child) => {
+      if ((child as THREE.Mesh).isMesh) {
+        const mesh = child as THREE.Mesh;
+        if (child.name.includes('15m') || child.name.includes('Object_8')) {
+          fenceGeom = mesh.geometry.clone();
+          material = mesh.material;
+        } else if (child.name.includes('red') || child.name.includes('Object_4')) {
+          redBlockGeom = mesh.geometry.clone();
+        } else if (child.name.includes('white') || child.name.includes('Object_6')) {
+          whiteBlockGeom = mesh.geometry.clone();
+        }
+      }
+    });
+
+    return { fenceGeom, redBlockGeom, whiteBlockGeom, material };
+  }, [scene]);
+
+  // Compute barrier transform matrices along outer gravel perimeter
+  const barrierTransforms = useMemo(() => {
+    if (splinePoints.length < 4) return [];
+
+    const transforms: { pos: [number, number, number]; rotY: number; isWhite: boolean }[] = [];
+    const step = Math.max(1, Math.floor(splinePoints.length / 50)); // Place barriers evenly around track
+
+    for (let i = 0; i < splinePoints.length; i += step) {
+      const p = splinePoints[i];
+      const nextP = splinePoints[(i + 1) % splinePoints.length];
+      const halfW = p.width / 2 + 8.8; // Outside gravel trap
+
+      // Left Barrier
+      const lx = p.position.x - p.binormal.x * halfW;
+      const lz = p.position.z - p.binormal.z * halfW;
+      const yawL = Math.atan2(nextP.tangent.x, nextP.tangent.z);
+      transforms.push({ pos: [lx, p.position.y, lz], rotY: yawL, isWhite: i % 2 === 0 });
+
+      // Right Barrier
+      const rx = p.position.x + p.binormal.x * halfW;
+      const rz = p.position.z + p.binormal.z * halfW;
+      transforms.push({ pos: [rx, p.position.y, rz], rotY: yawL, isWhite: i % 2 !== 0 });
+    }
+
+    return transforms;
+  }, [splinePoints]);
+
+  if (!barrierMeshes.fenceGeom && !barrierMeshes.redBlockGeom) return null;
+
+  return (
+    <group>
+      {barrierTransforms.map((b, idx) => (
+        <group key={idx} position={b.pos} rotation={[0, b.rotY, 0]}>
+          {barrierMeshes.redBlockGeom && (
+            <mesh
+              geometry={b.isWhite && barrierMeshes.whiteBlockGeom ? barrierMeshes.whiteBlockGeom : barrierMeshes.redBlockGeom}
+              material={barrierMeshes.material || undefined}
+              scale={[1.2, 1.2, 1.2]}
+              castShadow
+              receiveShadow
+            />
+          )}
+        </group>
+      ))}
+    </group>
+  );
 }
 
 export const TrackMesh: React.FC<TrackMeshProps> = ({ splinePoints, trackConfig }) => {
@@ -197,7 +274,10 @@ export const TrackMesh: React.FC<TrackMeshProps> = ({ splinePoints, trackConfig 
         </mesh>
       )}
 
-      {/* 6. Start / Finish Line Arch Bridge */}
+      {/* 6. Modular 3D Tyre Barriers and Trackside Elements */}
+      <ModularTrackBarriers splinePoints={splinePoints} />
+
+      {/* 7. Start / Finish Line Arch Bridge */}
       {startP && (
         <group position={gantryPos} rotation={[0, gantryAngle, 0]}>
           <mesh position={[-startP.width / 2 - 1.2, 4.2, 0]}>
@@ -225,3 +305,5 @@ export const TrackMesh: React.FC<TrackMeshProps> = ({ splinePoints, trackConfig 
     </group>
   );
 };
+
+useGLTF.preload('/modular_track_roads_free.glb');

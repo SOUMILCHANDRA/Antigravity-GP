@@ -47,6 +47,7 @@ export interface CarState {
   steering: number;   // -1..1
   offTrack: boolean;
   skidding: boolean;
+  carId?: string;
 }
 
 export interface LapTelemetry {
@@ -71,6 +72,7 @@ export interface AICompetitorState extends CarState {
   difficulty?: AIDifficulty;
   isDrafting?: boolean;
   isOvertaking?: boolean;
+  carId?: string;
 }
 
 export interface RaceBattleState {
