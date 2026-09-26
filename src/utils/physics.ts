@@ -60,10 +60,13 @@ export function updateCarPhysics(
     splinePoints
   );
 
-  // Road half-width + kerb (kerbs extend ~0.45m outside asphalt)
+  // Track zones: Asphalt Road -> Kerb -> Sand/Gravel Runoff Trap
   const halfWidth = nearestPoint ? nearestPoint.width / 2 : 7;
-  // Drivable across the full asphalt and kerb width
-  const isOffTrack = distance > (halfWidth + 0.5);
+  const kerbMargin = 0.65; // 0.65m kerbs
+  const isOnTrack = distance <= halfWidth;
+  const isOnKerb = distance > halfWidth && distance <= (halfWidth + kerbMargin);
+  const isInGravel = distance > (halfWidth + kerbMargin);
+  const isOffTrack = isInGravel;
 
   // 2. Steering Input (-1 to +1)
   let targetSteer = 0;
@@ -82,18 +85,19 @@ export function updateCarPhysics(
   const currentSpeedKmh = isNaN(currentState.speedKmh) ? 0 : currentState.speedKmh;
   let currentSpeedMs = currentSpeedKmh / 3.6;
 
-  // Performance parameters
-  const maxDriveAccel = 40.0;      // m/s^2 (0-100 km/h in 2.6s)
-  const brakeDecel = 50.0;         // m/s^2
+  // Performance parameters (1989 McLaren MP4/5 F1 Specs)
+  const maxDriveAccel = 42.0;      // m/s^2 (0-100 km/h in 2.5s)
+  const brakeDecel = 52.0;         // m/s^2 (F1 Carbon-Ceramic Brakes)
   const reverseAccel = 16.0;       // m/s^2
   const reverseMaxSpeedMs = -12.0; // -43 km/h
   const maxForwardSpeedMs = 95.0;  // 342 km/h
-  const dragCoeff = 0.0018;
-  const rollingFriction = 1.0;
+  const dragCoeff = 0.0020;
+  const rollingFriction = 1.2;
 
-  // Grip: 0.80 on grass (traction to steer and re-enter easily), 1.0 on track
-  const surfaceGrip = isOffTrack ? 0.80 : 1.0;
-  // Natural rolling resistance and aerodynamic drag
+  // Surface Grip: 1.0 on track, 0.90 on kerbs, 0.45 in loose sand/gravel
+  const surfaceGrip = isInGravel ? 0.45 : (isOnKerb ? 0.90 : 1.0);
+
+  // Natural aerodynamic drag
   const dragForce = dragCoeff * currentSpeedMs * currentSpeedMs + rollingFriction;
 
   let newSpeedMs = currentSpeedMs;
@@ -103,15 +107,18 @@ export function updateCarPhysics(
       // Braking while in reverse
       newSpeedMs = Math.min(0, currentSpeedMs + brakeDecel * surfaceGrip * dt);
     } else {
-      // Forward drive
-      const engineForce = throttle * maxDriveAccel;
-      const netAccel = (engineForce - dragForce) * surfaceGrip;
+      // Forward drive with gravel penalty if in sand/gravel
+      const gravelDrivePenalty = isInGravel ? 0.35 : 1.0;
+      const engineForce = throttle * maxDriveAccel * gravelDrivePenalty;
+      const gravelResistance = isInGravel ? 14.0 : 0;
+      const netAccel = (engineForce - dragForce - gravelResistance) * surfaceGrip;
       newSpeedMs = currentSpeedMs + netAccel * dt;
     }
   } else if (brake > 0) {
     if (currentSpeedMs > 0.4) {
-      // Forward braking
-      const netAccel = (-brakeDecel - dragForce) * surfaceGrip;
+      // Forward active foot braking
+      const gravelBrakeBoost = isInGravel ? 12.0 : 0; // Sand acts as natural brake trap
+      const netAccel = (-brakeDecel - dragForce - gravelBrakeBoost) * surfaceGrip;
       newSpeedMs = Math.max(0, currentSpeedMs + netAccel * dt);
     } else {
       // Reverse gear engage
@@ -119,20 +126,24 @@ export function updateCarPhysics(
       newSpeedMs = Math.max(reverseMaxSpeedMs, currentSpeedMs + netAccel * dt);
     }
   } else {
-    // Coasting deceleration
-    const coastDecel = (dragForce + rollingFriction * 1.5) * (isOffTrack ? 1.8 : 1.0);
+    // Engine Braking & Coasting Deceleration (When off-throttle, speed drops smoothly all the way to 0)
+    // F1 V10 high-compression engine compression braking + rolling resistance
+    const engineBraking = 7.5; // m/s^2 natural engine compression braking
+    const gravelDrag = isInGravel ? 18.0 : 0; // Heavy loose sand resistance
+    const totalCoastDecel = dragForce + engineBraking + gravelDrag;
+
     if (currentSpeedMs > 0.15) {
-      newSpeedMs = Math.max(0, currentSpeedMs - coastDecel * dt);
+      newSpeedMs = Math.max(0, currentSpeedMs - totalCoastDecel * dt);
     } else if (currentSpeedMs < -0.15) {
-      newSpeedMs = Math.min(0, currentSpeedMs + coastDecel * dt);
+      newSpeedMs = Math.min(0, currentSpeedMs + (engineBraking + 2.0) * dt);
     } else {
       newSpeedMs = 0;
     }
   }
 
-  // Smooth grass top speed (levels off naturally without artificial brake snaps)
-  if (isOffTrack && newSpeedMs > 38.0) {
-    newSpeedMs = Math.max(38.0, newSpeedMs - dt * 6.0);
+  // Sand/Gravel Pit speed cap: Deep loose sand bogs the car down to sand crawl (~28 km/h max)
+  if (isInGravel && newSpeedMs > 8.0) {
+    newSpeedMs = Math.max(8.0, newSpeedMs - dt * 22.0);
   }
 
   // Cap forward top speed

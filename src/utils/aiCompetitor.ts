@@ -520,7 +520,7 @@ export function resolveCarCollision(
   const dz = player.position.z - ai.position.z;
   const dist = Math.hypot(dx, dz);
 
-  const minSeparation = 2.1; // F1 car width with clearance
+  const minSeparation = 2.4; // Real 1:1 F1 car width with side-pod clearance
 
   if (dist < minSeparation && dist > 0.001) {
     const overlap = minSeparation - dist;

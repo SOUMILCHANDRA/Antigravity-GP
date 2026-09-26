@@ -27,9 +27,9 @@ export const CameraController: React.FC<CameraControllerProps> = ({ carState }) 
     const forwardX = Math.sin(yaw);
     const forwardZ = Math.cos(yaw);
 
-    const distance = 8.0;
-    const height = 3.2;
-    const lookAhead = 5.0;
+    const distance = 9.8;
+    const height = 3.6;
+    const lookAhead = 6.5;
 
     const targetCamPos = new THREE.Vector3(
       carPos.x - forwardX * distance,

@@ -57,8 +57,8 @@ export const TrackMesh: React.FC<TrackMeshProps> = ({ splinePoints, trackConfig 
     const lRunoffVerts: number[] = [];
     const rRunoffVerts: number[] = [];
 
-    const kerbWidth = 0.35;  // 0.35m kerb strip along road edge
-    const runoffWidth = 3.0; // 3.0m runoff outside kerb
+    const kerbWidth = 0.65;  // 0.65m F1 kerbs along road edge
+    const gravelWidth = 8.5; // 8.5m deep sand/gravel trap outside kerb
 
     for (let i = 0; i < numPoints; i++) {
       const p = splinePoints[i];
@@ -79,24 +79,24 @@ export const TrackMesh: React.FC<TrackMeshProps> = ({ splinePoints, trackConfig 
       const v = i / (numPoints - 1);
       asphaltUvs.push(0, v * 25, 1, v * 25);
 
-      // 2. Left Kerb Strip (from clx to lx, offset y + 0.01)
+      // 2. Left Kerb Strip (from clx to lx, offset y + 0.015)
       const clx = lx - p.binormal.x * kerbWidth;
       const clz = lz - p.binormal.z * kerbWidth;
-      lCurbVerts.push(clx, ly + 0.01, clz, lx, ly + 0.01, lz);
+      lCurbVerts.push(clx, ly + 0.015, clz, lx, ly + 0.015, lz);
 
-      // 3. Right Kerb Strip (from rx to crx, offset y + 0.01)
+      // 3. Right Kerb Strip (from rx to crx, offset y + 0.015)
       const crx = rx + p.binormal.x * kerbWidth;
       const crz = rz + p.binormal.z * kerbWidth;
-      rCurbVerts.push(rx, ry + 0.01, rz, crx, ry + 0.01, crz);
+      rCurbVerts.push(rx, ry + 0.015, rz, crx, ry + 0.015, crz);
 
-      // 4. Left Runoff Strip (from rfxL to clx, NOT underneath road)
-      const rfxL_x = clx - p.binormal.x * runoffWidth;
-      const rfxL_z = clz - p.binormal.z * runoffWidth;
+      // 4. Left Sand/Gravel Trap Strip (from rfxL to clx)
+      const rfxL_x = clx - p.binormal.x * gravelWidth;
+      const rfxL_z = clz - p.binormal.z * gravelWidth;
       lRunoffVerts.push(rfxL_x, ly - 0.01, rfxL_z, clx, ly - 0.01, clz);
 
-      // 5. Right Runoff Strip (from crx to rfxR, NOT underneath road)
-      const rfxR_x = crx + p.binormal.x * runoffWidth;
-      const rfxR_z = crz + p.binormal.z * runoffWidth;
+      // 5. Right Sand/Gravel Trap Strip (from crx to rfxR)
+      const rfxR_x = crx + p.binormal.x * gravelWidth;
+      const rfxR_z = crz + p.binormal.z * gravelWidth;
       rRunoffVerts.push(crx, ry - 0.01, crz, rfxR_x, ry - 0.01, rfxR_z);
 
       // Quad indices
@@ -159,17 +159,17 @@ export const TrackMesh: React.FC<TrackMeshProps> = ({ splinePoints, trackConfig 
 
   return (
     <group>
-      {/* 1. Left Runoff Strip (Adjacent, non-overlapping) */}
+      {/* 1. Left Sand / Gravel Trap */}
       {leftRunoffGeom && (
         <mesh geometry={leftRunoffGeom} receiveShadow>
-          <meshStandardMaterial color="#3A3F47" roughness={0.9} side={THREE.DoubleSide} />
+          <meshStandardMaterial color="#C89D66" roughness={0.96} metalness={0.05} side={THREE.DoubleSide} />
         </mesh>
       )}
 
-      {/* 2. Right Runoff Strip (Adjacent, non-overlapping) */}
+      {/* 2. Right Sand / Gravel Trap */}
       {rightRunoffGeom && (
         <mesh geometry={rightRunoffGeom} receiveShadow>
-          <meshStandardMaterial color="#3A3F47" roughness={0.9} side={THREE.DoubleSide} />
+          <meshStandardMaterial color="#C89D66" roughness={0.96} metalness={0.05} side={THREE.DoubleSide} />
         </mesh>
       )}
 

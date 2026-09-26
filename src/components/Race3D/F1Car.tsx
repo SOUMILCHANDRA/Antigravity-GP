@@ -76,31 +76,13 @@ function McLarenCarModel({ isAI = false, liveryColor = '#00E5FF' }: { isAI?: boo
   );
 }
 
-// Fallback Procedural Car
+// Fallback Procedural Car (Real F1 proportions: 4.4m length, 2.1m width, 1.0m height)
 function ProceduralCarFallback({ color = '#E10600' }: { color?: string }) {
   return (
-    <mesh position={[0, 0.25, 0]} castShadow>
-      <boxGeometry args={[0.8, 0.35, 3.2]} />
+    <mesh position={[0, 0.35, 0]} castShadow>
+      <boxGeometry args={[2.1, 0.6, 4.4]} />
       <meshStandardMaterial color={color} metalness={0.7} roughness={0.2} />
     </mesh>
-  );
-}
-
-// Phase 7: Debug Forward Arrow (points along local +Z of VehicleRoot)
-function DebugForwardArrow() {
-  return (
-    <group position={[0, 0.9, 0]}>
-      {/* Arrow shaft along local +Z */}
-      <mesh position={[0, 0, 1.2]} rotation={[Math.PI / 2, 0, 0]}>
-        <cylinderGeometry args={[0.04, 0.04, 2.0, 12]} />
-        <meshBasicMaterial color="#00FF66" />
-      </mesh>
-      {/* Arrow cone tip pointing in local +Z */}
-      <mesh position={[0, 0, 2.4]} rotation={[Math.PI / 2, 0, 0]}>
-        <coneGeometry args={[0.18, 0.5, 12]} />
-        <meshBasicMaterial color="#00FF66" />
-      </mesh>
-    </group>
   );
 }
 
@@ -111,7 +93,7 @@ export const F1Car: React.FC<F1CarProps> = ({
   isDrafting = false,
   isOvertaking = false
 }) => {
-  // Phase 3 & 8: VehicleRoot is the authoritative physics object
+  // VehicleRoot is the authoritative physics object
   const vehicleRootRef = useRef<THREE.Group | null>(null);
   const beaconRef = useRef<THREE.Group | null>(null);
   const shadowTexture = useMemo(() => createSoftShadowTexture(), []);
@@ -142,11 +124,8 @@ export const F1Car: React.FC<F1CarProps> = ({
   return (
     // VehicleRoot: Controls world position, physics yaw, and motion
     <group ref={vehicleRootRef}>
-      {/* Phase 7: Debug Forward Arrow (shows VehicleRoot's local +Z in world space) */}
-      {!isAI && <DebugForwardArrow />}
-
-      {/* Phase 3 & 4: CarVisual Container: Controls model-specific local rotation & scale */}
-      <group rotation={[0, MODEL_FORWARD_OFFSET, 0]} scale={[0.35, 0.35, 0.35]}>
+      {/* CarVisual Container: Scaled 0.60x to match true real-world F1 dimensions (4.45m length, 2.14m width) */}
+      <group rotation={[0, MODEL_FORWARD_OFFSET, 0]} scale={[0.60, 0.60, 0.60]}>
         <Suspense fallback={<ProceduralCarFallback color={isAI ? liveryColor : '#E10600'} />}>
           <McLarenCarModel isAI={isAI} liveryColor={liveryColor} />
         </Suspense>
@@ -154,9 +133,9 @@ export const F1Car: React.FC<F1CarProps> = ({
 
       {/* Floating Rival Beacon Indicator (only rendered for AI when active) */}
       {isAI && (
-        <group ref={beaconRef} position={[0, 1.45, 0]}>
+        <group ref={beaconRef} position={[0, 1.85, 0]}>
           <mesh rotation={[0, Math.PI / 4, 0]}>
-            <octahedronGeometry args={[isDrafting || isOvertaking ? 0.20 : 0.16, 0]} />
+            <octahedronGeometry args={[isDrafting || isOvertaking ? 0.28 : 0.22, 0]} />
             <meshStandardMaterial
               color={activeBeaconColor}
               emissive={activeBeaconColor}
@@ -166,15 +145,15 @@ export const F1Car: React.FC<F1CarProps> = ({
           </mesh>
           <pointLight
             color={activeBeaconColor}
-            intensity={isDrafting || isOvertaking ? 3.5 : 2.0}
-            distance={6}
+            intensity={isDrafting || isOvertaking ? 4.5 : 2.5}
+            distance={8}
           />
         </group>
       )}
 
-      {/* Contact Shadow Plane */}
+      {/* Realistic Feathered Ambient Contact Shadow scaled to full 4.5m car */}
       <mesh position={[0, -0.015, 0]} rotation={[-Math.PI / 2, 0, 0]}>
-        <planeGeometry args={[2.4, 4.6]} />
+        <planeGeometry args={[3.2, 5.8]} />
         <meshBasicMaterial
           map={shadowTexture}
           transparent

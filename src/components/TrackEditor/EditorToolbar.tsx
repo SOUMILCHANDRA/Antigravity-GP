@@ -153,7 +153,8 @@ export const EditorToolbar: React.FC<EditorToolbarProps> = ({
           <input
             type="range"
             min="10"
-            max="24"
+            max="40"
+            step="1"
             value={track.defaultWidth}
             onChange={(e) => handleWidthChange(parseInt(e.target.value))}
             className="w-full h-1.5 bg-[#1E2638] rounded-lg appearance-none cursor-pointer accent-[#00F0FF]"
