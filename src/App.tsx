@@ -573,6 +573,8 @@ export function App() {
               carState={carState}
               aiCarState={aiEnabled ? aiCarState : null}
               showRacingLine={showRacingLine}
+              playerCarId={playerCarId}
+              aiCarId={aiCarId}
             />
 
             <RaceHUD

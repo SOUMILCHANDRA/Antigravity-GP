@@ -219,6 +219,7 @@ export function updateCarPhysics(
     brake,
     steering,
     offTrack: isOffTrack,
-    skidding: isSkidding
+    skidding: isSkidding,
+    carId: currentState.carId || specs.id
   };
 }

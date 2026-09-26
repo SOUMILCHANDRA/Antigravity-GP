@@ -8,6 +8,7 @@ import { CAR_PRESETS, CarSpecs, DEFAULT_PLAYER_CAR_ID, DEFAULT_AI_CAR_ID } from 
 interface F1CarProps {
   carState: CarState;
   isAI?: boolean;
+  carId?: string;
   liveryColor?: string;
   isDrafting?: boolean;
   isOvertaking?: boolean;
@@ -101,6 +102,7 @@ function ProceduralCarFallback({ color = '#E10600' }: { color?: string }) {
 export const F1Car: React.FC<F1CarProps> = ({
   carState,
   isAI = false,
+  carId,
   liveryColor,
   isDrafting = false,
   isOvertaking = false
@@ -111,7 +113,7 @@ export const F1Car: React.FC<F1CarProps> = ({
   const shadowTexture = useMemo(() => createSoftShadowTexture(), []);
 
   // Determine car specifications
-  const activeCarId = carState.carId || (isAI ? DEFAULT_AI_CAR_ID : DEFAULT_PLAYER_CAR_ID);
+  const activeCarId = carId || carState.carId || (isAI ? DEFAULT_AI_CAR_ID : DEFAULT_PLAYER_CAR_ID);
   const specs: CarSpecs = CAR_PRESETS[activeCarId] || CAR_PRESETS[DEFAULT_PLAYER_CAR_ID];
   const effectiveLiveryColor = liveryColor || (isAI ? specs.aiDefaultColor : specs.liveryColor);
 
