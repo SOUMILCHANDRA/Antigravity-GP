@@ -1,9 +1,7 @@
 import React, { useRef, useMemo, Suspense } from 'react';
-import { useFrame, useLoader } from '@react-three/fiber';
+import { useFrame } from '@react-three/fiber';
 import { useGLTF } from '@react-three/drei';
 import * as THREE from 'three';
-import { OBJLoader } from 'three/examples/jsm/loaders/OBJLoader.js';
-import { MTLLoader } from 'three/examples/jsm/loaders/MTLLoader.js';
 import { CarState } from '../../types/track';
 import { CAR_PRESETS, CarSpecs, DEFAULT_PLAYER_CAR_ID, DEFAULT_AI_CAR_ID } from '../../utils/carPresets';
 
@@ -33,7 +31,7 @@ function createSoftShadowTexture(): THREE.CanvasTexture {
   return new THREE.CanvasTexture(canvas);
 }
 
-// GLB Car Model Renderer with dynamic AI livery tinting
+// Universal GLB Car Model Renderer with dynamic AI livery tinting
 function GLBCarModel({
   modelPath,
   isAI = false,
@@ -71,7 +69,9 @@ function GLBCarModel({
                 n.includes('chassis') ||
                 n.includes('coloured') ||
                 n.includes('meshpart1') ||
-                n.includes('car_chassis')
+                n.includes('car_chassis') ||
+                n.includes('fe0_main') ||
+                n.includes('front_bumper')
               ) {
                 stdMat.color.set(liveryColor);
                 if ('metalness' in stdMat) stdMat.metalness = 0.85;
@@ -86,66 +86,6 @@ function GLBCarModel({
   }, [scene, isAI, liveryColor]);
 
   return <primitive object={clonedScene} />;
-}
-
-// OBJ Car Model Renderer for 2014 Ferrari F1
-function OBJCarModel({
-  objPath,
-  mtlPath,
-  isAI = false,
-  liveryColor = '#00E5FF'
-}: {
-  objPath: string;
-  mtlPath: string;
-  isAI?: boolean;
-  liveryColor?: string;
-}) {
-  const materials = useLoader(MTLLoader, mtlPath);
-  const obj = useLoader(OBJLoader, objPath, (loader) => {
-    materials.preload();
-    loader.setMaterials(materials);
-  });
-
-  const clonedObj = useMemo(() => {
-    const clone = obj.clone(true);
-    const toRemove: THREE.Object3D[] = [];
-
-    clone.traverse((child) => {
-      // Remove ground plane element from 3D model
-      if (child.name === 'Plane') {
-        toRemove.push(child);
-      }
-      if ((child as THREE.Mesh).isMesh) {
-        const mesh = child as THREE.Mesh;
-        mesh.castShadow = true;
-        mesh.receiveShadow = true;
-
-        if (isAI) {
-          if (Array.isArray(mesh.material)) {
-            mesh.material = mesh.material.map(m => m.clone());
-          } else if (mesh.material) {
-            mesh.material = mesh.material.clone();
-          }
-
-          const mats = Array.isArray(mesh.material) ? mesh.material : [mesh.material];
-          mats.forEach(mat => {
-            if (mat && 'color' in mat) {
-              const stdMat = mat as THREE.MeshStandardMaterial;
-              const n = (stdMat.name || mesh.name || '').toLowerCase();
-              if (n.includes('fe0_main') || n.includes('body') || n.includes('paint') || n.includes('front_bumper')) {
-                stdMat.color.set(liveryColor);
-              }
-            }
-          });
-        }
-      }
-    });
-
-    toRemove.forEach(c => c.parent && c.parent.remove(c));
-    return clone;
-  }, [obj, isAI, liveryColor]);
-
-  return <primitive object={clonedObj} />;
 }
 
 // Fallback Procedural Car (Real proportions: 4.4m length, 2.0m width, 1.0m height)
@@ -208,20 +148,11 @@ export const F1Car: React.FC<F1CarProps> = ({
         position={specs.positionOffset}
       >
         <Suspense fallback={<ProceduralCarFallback color={effectiveLiveryColor} />}>
-          {specs.modelType === 'obj' && specs.objMtlPath ? (
-            <OBJCarModel
-              objPath={specs.modelPath}
-              mtlPath={specs.objMtlPath}
-              isAI={isAI}
-              liveryColor={effectiveLiveryColor}
-            />
-          ) : (
-            <GLBCarModel
-              modelPath={specs.modelPath}
-              isAI={isAI}
-              liveryColor={effectiveLiveryColor}
-            />
-          )}
+          <GLBCarModel
+            modelPath={specs.modelPath}
+            isAI={isAI}
+            liveryColor={effectiveLiveryColor}
+          />
         </Suspense>
       </group>
 
@@ -259,8 +190,9 @@ export const F1Car: React.FC<F1CarProps> = ({
   );
 };
 
-// Preload GLB models
+// Preload all 5 GLB models for instantaneous model switching
 useGLTF.preload('/mclaren_mp45.glb');
 useGLTF.preload('/1967_ferrari_312.glb');
 useGLTF.preload('/1972_lotus_72d.glb');
 useGLTF.preload('/1989_ferrari_f40_competizione.glb');
+useGLTF.preload('/2014_ferrari_f1.glb');

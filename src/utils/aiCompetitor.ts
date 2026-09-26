@@ -58,10 +58,10 @@ export function createAICompetitor(
   // Lateral binormal in X-Z plane: (-forward.z, 0, forward.x)
   const binormal = { x: -forward.z, z: forward.x };
 
-  // Slot 2: 8.5m behind player along track tangent, offset 2.2m to the right side of the track
-  const spawnX = p0.position.x - forward.x * 8.5 + binormal.x * 2.2;
+  // Slot 2: 4.5m behind player along track tangent, offset 2.5m to the right side of the track
+  const spawnX = p0.position.x - forward.x * 4.5 + binormal.x * 2.5;
   const spawnY = p0.position.y + 0.10;
-  const spawnZ = p0.position.z - forward.z * 8.5 + binormal.z * 2.2;
+  const spawnZ = p0.position.z - forward.z * 4.5 + binormal.z * 2.5;
 
   return {
     position: { x: spawnX, y: spawnY, z: spawnZ },
@@ -205,10 +205,18 @@ export function updateAICompetitor(params: AIUpdateParams): {
   }
 
   // 2. Locate AI on Track & Measure Boundaries
-  const { nearestIndex, point: nearestSplinePoint } = getNearestSplinePoint(
+  const { nearestIndex: rawNearestIndex, point: nearestSplinePoint } = getNearestSplinePoint(
     aiState.position,
     splinePoints
   );
+
+  // Prevent wrap-around to the end of the track when AI is near the start line
+  const startP0 = splinePoints[0];
+  const distFromStart0 = startP0 ? Math.hypot(aiState.position.x - startP0.position.x, aiState.position.z - startP0.position.z) : 0;
+  let nearestIndex = rawNearestIndex;
+  if (distFromStart0 < 25.0 && rawNearestIndex > n - 25) {
+    nearestIndex = 0;
+  }
 
   const nearestP = nearestSplinePoint || splinePoints[nearestIndex];
   const roadWidth = nearestP.width || 14;
@@ -618,12 +626,11 @@ export function calculateRaceBattle(
     const vx = pos.x - startP.position.x;
     const vz = pos.z - startP.position.z;
     const s = vx * startP.tangent.x + vz * startP.tangent.z;
+    const distFromStart = Math.hypot(vx, vz);
 
-    // If on Lap 0 before crossing start line, use exact signed tangent position
+    // If near the start line and behind the line on Lap 0, use signed offset
     if (completedLaps === 0) {
-      if (isAI && !aiHasStarted && s < 0) {
-        dist = s; // E.g. -8.5m on starting grid
-      } else if (!isAI && s < 0 && dist > trackLength * 0.7) {
+      if (s < 0 && (dist > trackLength * 0.7 || distFromStart < 25.0)) {
         dist = s;
       }
     }
