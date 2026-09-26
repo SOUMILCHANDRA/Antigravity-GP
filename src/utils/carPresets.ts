@@ -57,8 +57,8 @@ export const CAR_PRESETS: Record<string, CarSpecs> = {
     modelPath: '/1967_ferrari_312.glb',
     modelType: 'glb',
     scale: [1.0, 1.0, 1.0],
-    rotationOffset: [-Math.PI / 2, 0, 0],
-    positionOffset: [0, 0.45, 0],
+    rotationOffset: [0, 0, 0],
+    positionOffset: [0, 0.0, 0],
     physics: {
       maxDriveAccel: 33.0,
       brakeDecel: 36.0, // Steel brakes: longer braking zones
@@ -99,8 +99,8 @@ export const CAR_PRESETS: Record<string, CarSpecs> = {
     modelPath: '/1972_lotus_72d.glb',
     modelType: 'glb',
     scale: [0.218, 0.218, 0.218],
-    rotationOffset: [Math.PI / 2, 0, 0],
-    positionOffset: [0, 0.02, 0],
+    rotationOffset: [0, 0, 0],
+    positionOffset: [0, 0.0, 0],
     physics: {
       maxDriveAccel: 38.0,
       brakeDecel: 44.0,
