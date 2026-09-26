@@ -64,6 +64,8 @@ export function sampleSplinePoints(
 
 /**
  * Single Authoritative Function to calculate vehicle spawn position and yaw orientation
+ * Phase 6: P0 = splinePoints[0], P1 = next meaningful spline sample,
+ * trackForward = normalize(P1 - P0), physicsYaw = Math.atan2(trackForward.x, trackForward.z)
  */
 export function getTrackSpawnTransform(splinePoints: SplinePoint[]): {
   position: Vector3D;
@@ -79,19 +81,21 @@ export function getTrackSpawnTransform(splinePoints: SplinePoint[]): {
   }
 
   const p0 = splinePoints[0];
-  const p1 = splinePoints[1] || splinePoints[0];
+  // Sample a clear forward step (e.g. 1st or 2nd point) to avoid micro-tangent noise
+  const sampleIdx = Math.min(2, splinePoints.length - 1);
+  const p1 = splinePoints[sampleIdx];
 
   const dx = p1.position.x - p0.position.x;
   const dz = p1.position.z - p0.position.z;
-  const len = Math.sqrt(dx * dx + dz * dz) || 1;
+  const len = Math.hypot(dx, dz) || 1;
 
-  const forward = { x: dx / len, y: 0, z: dz / len };
-  const yaw = Math.atan2(forward.x, forward.z);
+  const trackForward: Vector3D = { x: dx / len, y: 0, z: dz / len };
+  const physicsYaw = Math.atan2(trackForward.x, trackForward.z);
 
   return {
     position: { x: p0.position.x, y: p0.position.y + 0.10, z: p0.position.z },
-    rotation: { x: 0, y: yaw, z: 0 },
-    forward
+    rotation: { x: 0, y: physicsYaw, z: 0 },
+    forward: trackForward
   };
 }
 

@@ -56,8 +56,8 @@ export function App() {
     lapTelemetryRef.current = lapTelemetry;
   }, [lapTelemetry]);
 
-  // AI Competitor & Duel Battle State
-  const [aiEnabled, setAiEnabled] = useState<boolean>(true);
+  // AI Competitor & Duel Battle State (Phase 1 & 12: Default false for isolated single player debugging)
+  const [aiEnabled, setAiEnabled] = useState<boolean>(false);
   const [aiDifficulty, setAiDifficulty] = useState<AIDifficulty>('challenger');
   const [aiCarState, setAiCarState] = useState<AICompetitorState>(createAICompetitor([]));
   const aiCarStateRef = useRef<AICompetitorState>(createAICompetitor([]));
@@ -566,6 +566,7 @@ export function App() {
               onChangeDifficulty={cycleAIDifficulty}
               isDrafting={aiCarState.isDrafting}
               isOvertaking={aiCarState.isOvertaking}
+              carState={carState}
             />
             
             <Minimap

@@ -30,9 +30,10 @@ function createSoftShadowTexture(): THREE.CanvasTexture {
   return new THREE.CanvasTexture(canvas);
 }
 
+// Phase 4: Model's native forward orientation in GLB (nose is at +Z)
+export const MODEL_FORWARD_OFFSET = 0;
+
 // Visual McLaren GLB Model Component
-// Model's front wheels are at +Z (+2.0555), rear wheels at -Z (-2.7486)
-// Rotation [0, 0, 0] aligns the car nose directly with local +Z physics forward
 function McLarenCarModel({ isAI = false, liveryColor = '#00E5FF' }: { isAI?: boolean; liveryColor?: string }) {
   const { scene } = useGLTF('/mclaren_mp45.glb');
 
@@ -71,8 +72,6 @@ function McLarenCarModel({ isAI = false, liveryColor = '#00E5FF' }: { isAI?: boo
   return (
     <primitive
       object={clonedScene}
-      scale={[0.35, 0.35, 0.35]}
-      rotation={[0, 0, 0]} // Aligned with +Z physics forward direction
     />
   );
 }
@@ -87,6 +86,24 @@ function ProceduralCarFallback({ color = '#E10600' }: { color?: string }) {
   );
 }
 
+// Phase 7: Debug Forward Arrow (points along local +Z of VehicleRoot)
+function DebugForwardArrow() {
+  return (
+    <group position={[0, 0.9, 0]}>
+      {/* Arrow shaft along local +Z */}
+      <mesh position={[0, 0, 1.2]} rotation={[Math.PI / 2, 0, 0]}>
+        <cylinderGeometry args={[0.04, 0.04, 2.0, 12]} />
+        <meshBasicMaterial color="#00FF66" />
+      </mesh>
+      {/* Arrow cone tip pointing in local +Z */}
+      <mesh position={[0, 0, 2.4]} rotation={[Math.PI / 2, 0, 0]}>
+        <coneGeometry args={[0.18, 0.5, 12]} />
+        <meshBasicMaterial color="#00FF66" />
+      </mesh>
+    </group>
+  );
+}
+
 export const F1Car: React.FC<F1CarProps> = ({
   carState,
   isAI = false,
@@ -94,17 +111,19 @@ export const F1Car: React.FC<F1CarProps> = ({
   isDrafting = false,
   isOvertaking = false
 }) => {
+  // Phase 3 & 8: VehicleRoot is the authoritative physics object
   const vehicleRootRef = useRef<THREE.Group | null>(null);
   const beaconRef = useRef<THREE.Group | null>(null);
   const shadowTexture = useMemo(() => createSoftShadowTexture(), []);
 
   const activeBeaconColor = (isDrafting || isOvertaking) ? '#FF9100' : liveryColor;
 
+  // Authoritative rendering of CarState into Three.js object (no physics writeback)
   useFrame((_, delta) => {
     if (!vehicleRootRef.current) return;
 
     const px = isNaN(carState.position.x) ? 0 : carState.position.x;
-    const py = isNaN(carState.position.y) ? 0.05 : carState.position.y + 0.05;
+    const py = isNaN(carState.position.y) ? 0.1 : carState.position.y;
     const pz = isNaN(carState.position.z) ? 0 : carState.position.z;
 
     const rx = isNaN(carState.rotation.x) ? 0 : carState.rotation.x;
@@ -121,13 +140,19 @@ export const F1Car: React.FC<F1CarProps> = ({
   });
 
   return (
+    // VehicleRoot: Controls world position, physics yaw, and motion
     <group ref={vehicleRootRef}>
-      {/* Visual Car Model */}
-      <Suspense fallback={<ProceduralCarFallback color={isAI ? liveryColor : '#E10600'} />}>
-        <McLarenCarModel isAI={isAI} liveryColor={liveryColor} />
-      </Suspense>
+      {/* Phase 7: Debug Forward Arrow (shows VehicleRoot's local +Z in world space) */}
+      {!isAI && <DebugForwardArrow />}
 
-      {/* Floating Rival Beacon Indicator */}
+      {/* Phase 3 & 4: CarVisual Container: Controls model-specific local rotation & scale */}
+      <group rotation={[0, MODEL_FORWARD_OFFSET, 0]} scale={[0.35, 0.35, 0.35]}>
+        <Suspense fallback={<ProceduralCarFallback color={isAI ? liveryColor : '#E10600'} />}>
+          <McLarenCarModel isAI={isAI} liveryColor={liveryColor} />
+        </Suspense>
+      </group>
+
+      {/* Floating Rival Beacon Indicator (only rendered for AI when active) */}
       {isAI && (
         <group ref={beaconRef} position={[0, 1.45, 0]}>
           <mesh rotation={[0, Math.PI / 4, 0]}>
@@ -147,7 +172,7 @@ export const F1Car: React.FC<F1CarProps> = ({
         </group>
       )}
 
-      {/* Realistic Feathered Ambient Contact Shadow */}
+      {/* Contact Shadow Plane */}
       <mesh position={[0, -0.015, 0]} rotation={[-Math.PI / 2, 0, 0]}>
         <planeGeometry args={[2.4, 4.6]} />
         <meshBasicMaterial
