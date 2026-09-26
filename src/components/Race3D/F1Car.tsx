@@ -2,6 +2,7 @@ import React, { useRef, useMemo, Suspense } from 'react';
 import { useFrame } from '@react-three/fiber';
 import { useGLTF } from '@react-three/drei';
 import * as THREE from 'three';
+import * as SkeletonUtils from 'three/examples/jsm/utils/SkeletonUtils.js';
 import { CarState } from '../../types/track';
 import { CAR_PRESETS, CarSpecs, DEFAULT_PLAYER_CAR_ID, DEFAULT_AI_CAR_ID } from '../../utils/carPresets';
 
@@ -45,7 +46,8 @@ function GLBCarModel({
   const { scene } = useGLTF(modelPath);
 
   const clonedScene = useMemo(() => {
-    const clone = scene.clone(true);
+    // SkeletonUtils.clone supports both standard Mesh hierarchy and SkinnedMesh/Bone rigging
+    const clone = SkeletonUtils.clone(scene);
     clone.traverse((child) => {
       if ((child as THREE.Mesh).isMesh) {
         const mesh = child as THREE.Mesh;
@@ -99,6 +101,28 @@ function ProceduralCarFallback({ color = '#E10600' }: { color?: string }) {
   );
 }
 
+class ModelErrorBoundary extends React.Component<
+  { fallback: React.ReactNode; children: React.ReactNode },
+  { hasError: boolean }
+> {
+  constructor(props: { fallback: React.ReactNode; children: React.ReactNode }) {
+    super(props);
+    this.state = { hasError: false };
+  }
+  static getDerivedStateFromError() {
+    return { hasError: true };
+  }
+  componentDidCatch(error: any) {
+    console.warn('Model loading fallback triggered:', error);
+  }
+  render() {
+    if (this.state.hasError) {
+      return this.props.fallback;
+    }
+    return this.props.children;
+  }
+}
+
 export const F1Car: React.FC<F1CarProps> = ({
   carState,
   isAI = false,
@@ -149,13 +173,15 @@ export const F1Car: React.FC<F1CarProps> = ({
         scale={specs.scale}
         position={specs.positionOffset}
       >
-        <Suspense fallback={<ProceduralCarFallback color={effectiveLiveryColor} />}>
-          <GLBCarModel
-            modelPath={specs.modelPath}
-            isAI={isAI}
-            liveryColor={effectiveLiveryColor}
-          />
-        </Suspense>
+        <ModelErrorBoundary fallback={<ProceduralCarFallback color={effectiveLiveryColor} />}>
+          <Suspense fallback={<ProceduralCarFallback color={effectiveLiveryColor} />}>
+            <GLBCarModel
+              modelPath={specs.modelPath}
+              isAI={isAI}
+              liveryColor={effectiveLiveryColor}
+            />
+          </Suspense>
+        </ModelErrorBoundary>
       </group>
 
       {/* Floating Rival Beacon Indicator (only rendered for AI when active) */}
