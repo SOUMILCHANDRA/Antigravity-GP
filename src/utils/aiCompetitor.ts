@@ -108,13 +108,22 @@ function computeCurvatureRadius(p1: Vector3D, p2: Vector3D, p3: Vector3D): numbe
 }
 
 /**
- * Computes maximum cornering velocity based on radius and F1 aerodynamic downforce.
+ * Computes maximum cornering velocity based on radius, F1 aerodynamic downforce, and track banking.
  */
-function getTargetCornerSpeedMs(radius: number, difficulty: AIDifficulty = 'challenger'): number {
+function getTargetCornerSpeedMs(
+  radius: number,
+  difficulty: AIDifficulty = 'challenger',
+  bankingDeg: number = 0
+): number {
   let gripMu = 2.4;
   if (radius > 160) gripMu = 3.6; // High-speed downforce sweeper
   else if (radius > 80) gripMu = 3.0; // Medium-speed corner
   else if (radius > 40) gripMu = 2.6;
+
+  // Banking bonus: banking into the corner boosts tire normal load and lateral force
+  const bankRad = (bankingDeg || 0) * (Math.PI / 180);
+  const bankingBonus = 1.0 + Math.abs(Math.sin(bankRad)) * 0.35;
+  gripMu *= bankingBonus;
 
   let speed = Math.sqrt(gripMu * 9.81 * radius);
 
@@ -271,10 +280,17 @@ export function updateAICompetitor(params: AIUpdateParams): {
 
     const radius = computeCurvatureRadius(pA, pB, pC);
 
+    const splinePointB = splinePoints[idxB];
+    const bankingB = splinePointB.banking || 0;
+
     if (radius < 260) {
-      const cornerSpeed = getTargetCornerSpeedMs(radius, difficulty) * pushFactor * (aiPhys.gripMultiplier || 1.0);
+      const cornerSpeed = getTargetCornerSpeedMs(radius, difficulty, bankingB) * pushFactor * (aiPhys.gripMultiplier || 1.0);
       const distToCorner = s * (trackLength / n);
-      const brakeDistNeeded = Math.max(0, (currentSpeedMs * currentSpeedMs - cornerSpeed * cornerSpeed) / (2 * aBrake));
+      // Elevation gradient: downhill requires longer braking, uphill provides gravity braking assistance
+      const deltaY = pB.y - nearestP.position.y;
+      const gradeSin = Math.sin(Math.atan2(deltaY, Math.max(1, distToCorner)));
+      const effectiveABrake = Math.max(7.0, aBrake + 9.81 * gradeSin);
+      const brakeDistNeeded = Math.max(0, (currentSpeedMs * currentSpeedMs - cornerSpeed * cornerSpeed) / (2 * effectiveABrake));
 
       const margin = pushFactor > 1.0 ? 2.5 : 4.5;
       if (distToCorner <= brakeDistNeeded + margin) {
@@ -454,8 +470,13 @@ export function updateAICompetitor(params: AIUpdateParams): {
     newYaw = normalizeAngle(newYaw * 0.85 + tangentYaw * 0.15);
   }
 
-  const targetY = nearestP.position.y || 0;
-  const newPosY = aiState.position.y + (targetY + 0.05 - aiState.position.y) * (dt * 6.0);
+  const bankDeg = nearestP.banking || 0;
+  const bankRad = bankDeg * (Math.PI / 180);
+  const cosBank = Math.cos(bankRad);
+  const sinBank = Math.sin(bankRad);
+  const bLatY = nearestP.binormal.y * cosBank + nearestP.normal.y * sinBank;
+  const surfaceY = (nearestP.position.y || 0) + bLatY * currentLatOffset;
+  const newPosY = aiState.position.y + (surfaceY + 0.05 - aiState.position.y) * (dt * 8.0);
 
   // 11. Sector & Finish Line Tracking
   const startP = splinePoints[0];
@@ -510,7 +531,7 @@ export function updateAICompetitor(params: AIUpdateParams): {
   const nextAIState: AICompetitorState = {
     ...aiState,
     position: { x: newPosX, y: newPosY, z: newPosZ },
-    rotation: { x: 0, y: newYaw, z: steeringInput * -0.04 },
+    rotation: { x: 0, y: newYaw, z: (steeringInput * -0.04) + bankRad },
     velocity: { x: dirX * newSpeedMs, y: 0, z: dirZ * newSpeedMs },
     speedKmh: Math.round(newSpeedMs * 3.6),
     throttle,

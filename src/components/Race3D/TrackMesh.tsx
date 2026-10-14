@@ -58,20 +58,35 @@ export const TrackMesh: React.FC<TrackMeshProps> = ({ splinePoints, trackConfig 
     const rRunoffVerts: number[] = [];
 
     const kerbWidth = 0.65;  // 0.65m F1 kerbs along road edge
-    const gravelWidth = 8.5; // 8.5m deep sand/gravel trap outside kerb
 
     for (let i = 0; i < numPoints; i++) {
       const p = splinePoints[i];
       const halfW = p.width / 2;
+      const gravelW = p.runoffWidth || 8.5; // per-point runoff width
+
+      // Banked normal and binormal: rotate around tangent by banking angle
+      const bankRad = (p.banking || 0) * (Math.PI / 180);
+      const cosB = Math.cos(bankRad);
+      const sinB = Math.sin(bankRad);
+
+      // Banked lateral vector: cos(B) * binormal + sin(B) * normal
+      const bLatX = p.binormal.x * cosB + p.normal.x * sinB;
+      const bLatY = p.binormal.y * cosB + p.normal.y * sinB;
+      const bLatZ = p.binormal.z * cosB + p.normal.z * sinB;
+
+      // Banked up vector: -sin(B) * binormal + cos(B) * normal
+      const bUpX = -p.binormal.x * sinB + p.normal.x * cosB;
+      const bUpY = -p.binormal.y * sinB + p.normal.y * cosB;
+      const bUpZ = -p.binormal.z * sinB + p.normal.z * cosB;
 
       // Track edge coordinates (on spline surface)
-      const lx = p.position.x - p.binormal.x * halfW;
-      const ly = p.position.y;
-      const lz = p.position.z - p.binormal.z * halfW;
+      const lx = p.position.x - bLatX * halfW;
+      const ly = p.position.y - bLatY * halfW;
+      const lz = p.position.z - bLatZ * halfW;
 
-      const rx = p.position.x + p.binormal.x * halfW;
-      const ry = p.position.y;
-      const rz = p.position.z + p.binormal.z * halfW;
+      const rx = p.position.x + bLatX * halfW;
+      const ry = p.position.y + bLatY * halfW;
+      const rz = p.position.z + bLatZ * halfW;
 
       // 1. Asphalt Road Vertices (from lx to rx)
       asphaltVerts.push(lx, ly, lz, rx, ry, rz);
@@ -79,25 +94,43 @@ export const TrackMesh: React.FC<TrackMeshProps> = ({ splinePoints, trackConfig 
       const v = i / (numPoints - 1);
       asphaltUvs.push(0, v * 25, 1, v * 25);
 
-      // 2. Left Kerb Strip (from clx to lx, offset y + 0.015)
-      const clx = lx - p.binormal.x * kerbWidth;
-      const clz = lz - p.binormal.z * kerbWidth;
-      lCurbVerts.push(clx, ly + 0.015, clz, lx, ly + 0.015, lz);
+      // 2. Left Kerb Strip (from clx to lx, offset slightly above road along banked up)
+      const clx = lx - bLatX * kerbWidth;
+      const cly = ly - bLatY * kerbWidth;
+      const clz = lz - bLatZ * kerbWidth;
+      const kerbLift = 0.015;
+      lCurbVerts.push(
+        clx + bUpX * kerbLift, cly + bUpY * kerbLift, clz + bUpZ * kerbLift,
+        lx + bUpX * kerbLift, ly + bUpY * kerbLift, lz + bUpZ * kerbLift
+      );
 
-      // 3. Right Kerb Strip (from rx to crx, offset y + 0.015)
-      const crx = rx + p.binormal.x * kerbWidth;
-      const crz = rz + p.binormal.z * kerbWidth;
-      rCurbVerts.push(rx, ry + 0.015, rz, crx, ry + 0.015, crz);
+      // 3. Right Kerb Strip (from rx to crx, offset slightly above road along banked up)
+      const crx = rx + bLatX * kerbWidth;
+      const cry = ry + bLatY * kerbWidth;
+      const crz = rz + bLatZ * kerbWidth;
+      rCurbVerts.push(
+        rx + bUpX * kerbLift, ry + bUpY * kerbLift, rz + bUpZ * kerbLift,
+        crx + bUpX * kerbLift, cry + bUpY * kerbLift, crz + bUpZ * kerbLift
+      );
 
-      // 4. Left Sand/Gravel Trap Strip (from rfxL to clx)
-      const rfxL_x = clx - p.binormal.x * gravelWidth;
-      const rfxL_z = clz - p.binormal.z * gravelWidth;
-      lRunoffVerts.push(rfxL_x, ly - 0.01, rfxL_z, clx, ly - 0.01, clz);
+      // 4. Left Sand/Gravel Trap Strip (from rfxL to clx, width = p.runoffWidth)
+      const rfxL_x = clx - bLatX * gravelW;
+      const rfxL_y = cly - bLatY * gravelW;
+      const rfxL_z = clz - bLatZ * gravelW;
+      const gravelDip = -0.01;
+      lRunoffVerts.push(
+        rfxL_x + bUpX * gravelDip, rfxL_y + bUpY * gravelDip, rfxL_z + bUpZ * gravelDip,
+        clx + bUpX * gravelDip, cly + bUpY * gravelDip, clz + bUpZ * gravelDip
+      );
 
-      // 5. Right Sand/Gravel Trap Strip (from crx to rfxR)
-      const rfxR_x = crx + p.binormal.x * gravelWidth;
-      const rfxR_z = crz + p.binormal.z * gravelWidth;
-      rRunoffVerts.push(crx, ry - 0.01, crz, rfxR_x, ry - 0.01, rfxR_z);
+      // 5. Right Sand/Gravel Trap Strip (from crx to rfxR, width = p.runoffWidth)
+      const rfxR_x = crx + bLatX * gravelW;
+      const rfxR_y = cry + bLatY * gravelW;
+      const rfxR_z = crz + bLatZ * gravelW;
+      rRunoffVerts.push(
+        crx + bUpX * gravelDip, cry + bUpY * gravelDip, crz + bUpZ * gravelDip,
+        rfxR_x + bUpX * gravelDip, rfxR_y + bUpY * gravelDip, rfxR_z + bUpZ * gravelDip
+      );
 
       // Quad indices
       if (i < numPoints - 1) {

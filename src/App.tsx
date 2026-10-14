@@ -8,11 +8,14 @@ import { generateIdealRacingLine } from './utils/racingLine';
 import { audioEngine } from './utils/audio';
 import { TrackHistory } from './utils/history';
 import { CAR_PRESETS, DEFAULT_PLAYER_CAR_ID, DEFAULT_AI_CAR_ID } from './utils/carPresets';
+import { calculateTrackStats, validateTrackGeometry } from './utils/trackAnalysis';
 
 import { Header } from './components/Header';
 import { EditorCanvas } from './components/TrackEditor/EditorCanvas';
 import { EditorToolbar } from './components/TrackEditor/EditorToolbar';
 import { HistoryPanel } from './components/TrackEditor/HistoryPanel';
+import { PointInspector } from './components/TrackEditor/PointInspector';
+import { TrackStatsPanel } from './components/TrackEditor/TrackStatsPanel';
 
 import { RaceCanvas } from './components/Race3D/RaceCanvas';
 import { RaceHUD } from './components/UI/RaceHUD';
@@ -169,6 +172,14 @@ export function App() {
     if (splinePoints.length < 2) return 0;
     return splinePoints[splinePoints.length - 1].distance;
   }, [splinePoints]);
+
+  const trackStats = useMemo(() => {
+    return calculateTrackStats(track, splinePoints);
+  }, [track, splinePoints]);
+
+  const validationIssues = useMemo(() => {
+    return validateTrackGeometry(track, splinePoints);
+  }, [track, splinePoints]);
 
   const handleAddPoint = (worldPos: { x: number; y: number }, snap15Deg: boolean = false) => {
     let finalPos = { ...worldPos };
@@ -614,7 +625,31 @@ export function App() {
               onAddPoint={handleAddPoint}
               onCloseCircuit={() => updateTrackState(prev => ({ ...prev, isClosed: true }), 'Close Circuit')}
               onMoveStartLine={handleMoveStartLine}
+              corners={trackStats.corners}
             />
+
+            {/* Stage 2 Point Inspector (Per-point elevation, width, banking, runoff, naming) */}
+            <PointInspector
+              track={track}
+              setTrack={updateTrackState}
+              selectedNodeId={selectedNodeId}
+              selectedNodeIds={selectedNodeIds}
+              setSelectedNodeId={setSelectedNodeId}
+              setSelectedNodeIds={setSelectedNodeIds}
+              corners={trackStats.corners}
+              onMoveStartLine={handleMoveStartLine}
+            />
+
+            {/* Stage 2 Circuit Telemetry & FIA Safety Validation Panel */}
+            <TrackStatsPanel
+              stats={trackStats}
+              issues={validationIssues}
+              onSelectNode={(nodeId) => {
+                setSelectedNodeId(nodeId);
+                setSelectedNodeIds([nodeId]);
+              }}
+            />
+
             <EditorToolbar
               track={track}
               setTrack={updateTrackState}
@@ -643,6 +678,7 @@ export function App() {
               onToggleHistoryPanel={() => setIsHistoryPanelOpen(prev => !prev)}
               isHistoryPanelOpen={isHistoryPanelOpen}
               onMoveStartLine={handleMoveStartLine}
+              stats={trackStats}
             />
 
             {/* Visual History Panel */}

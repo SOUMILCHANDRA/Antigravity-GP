@@ -1,6 +1,7 @@
 import React, { useRef, useEffect, useState, useCallback } from 'react';
 import { TrackNode, TrackConfig, EditorTool } from '../../types/track';
 import { buildTrackCurve, sampleSplinePoints, getNearestSplinePoint } from '../../utils/spline';
+import { CornerInfo } from '../../utils/trackAnalysis';
 import { Plus } from 'lucide-react';
 
 interface EditorCanvasProps {
@@ -17,6 +18,7 @@ interface EditorCanvasProps {
   onCloseCircuit: () => void;
   onMoveStartLine: (nodeId: string) => void;
   onZoomFitRequest?: () => void;
+  corners?: CornerInfo[];
 }
 
 export const EditorCanvas: React.FC<EditorCanvasProps> = ({
@@ -31,7 +33,8 @@ export const EditorCanvas: React.FC<EditorCanvasProps> = ({
   snapEnabled,
   onAddPoint,
   onCloseCircuit,
-  onMoveStartLine
+  onMoveStartLine,
+  corners = []
 }) => {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
 
@@ -365,6 +368,18 @@ export const EditorCanvas: React.FC<EditorCanvasProps> = ({
     const activeSelectedSet = new Set(selectedNodeIds);
     if (selectedNodeId) activeSelectedSet.add(selectedNodeId);
 
+    const cornerMap = new Map<string, CornerInfo>();
+    corners.forEach(c => cornerMap.set(c.nodeId, c));
+
+    const drawPill = (x: number, y: number, w: number, h: number, r: number) => {
+      ctx.beginPath();
+      if (typeof ctx.roundRect === 'function') {
+        ctx.roundRect(x, y, w, h, r);
+      } else {
+        ctx.rect(x, y, w, h);
+      }
+    };
+
     track.nodes.forEach((node, idx) => {
       const sp = worldToCanvas(node.x, node.y);
       const isSelected = activeSelectedSet.has(node.id);
@@ -404,6 +419,66 @@ export const EditorCanvas: React.FC<EditorCanvasProps> = ({
         ctx.arc(sp.x + 7, sp.y - 7, 3.5, 0, Math.PI * 2);
         ctx.fillStyle = '#F59E0B';
         ctx.fill();
+      }
+
+      // Corner Badge (Turn Number / Name & Radius)
+      const corner = cornerMap.get(node.id);
+      if (corner && zoom >= 0.35) {
+        const badgeText = `${corner.name} (${corner.radius}m)`;
+        ctx.font = '700 9px Fira Code, monospace';
+        const textWidth = ctx.measureText(badgeText).width;
+        const badgeX = sp.x;
+        const badgeY = sp.y - 18;
+
+        ctx.fillStyle = isSelected ? 'rgba(225, 6, 0, 0.95)' : 'rgba(15, 23, 42, 0.9)';
+        ctx.strokeStyle = isSelected ? '#FFFFFF' : '#38BDF8';
+        ctx.lineWidth = 1;
+        drawPill(badgeX - textWidth / 2 - 5, badgeY - 7, textWidth + 10, 14, 4);
+        ctx.fill();
+        ctx.stroke();
+
+        ctx.fillStyle = isSelected ? '#FFFFFF' : '#38BDF8';
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        ctx.fillText(badgeText, badgeX, badgeY);
+      }
+
+      // Elevation Tag if non-zero
+      if (node.elevation && node.elevation !== 0 && zoom >= 0.45) {
+        const elevText = `${node.elevation > 0 ? '+' : ''}${node.elevation}m`;
+        ctx.font = '600 8.5px Fira Code, monospace';
+        const tW = ctx.measureText(elevText).width;
+        const eY = sp.y + 16;
+        ctx.fillStyle = 'rgba(16, 185, 129, 0.2)';
+        ctx.strokeStyle = '#10B981';
+        ctx.lineWidth = 1;
+        drawPill(sp.x - tW / 2 - 4, eY - 6, tW + 8, 12, 3);
+        ctx.fill();
+        ctx.stroke();
+
+        ctx.fillStyle = '#34D399';
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        ctx.fillText(elevText, sp.x, eY);
+      }
+
+      // Banking Tag if non-zero
+      if (node.banking && node.banking !== 0 && zoom >= 0.45) {
+        const bankText = `∠${node.banking > 0 ? '+' : ''}${node.banking}°`;
+        ctx.font = '600 8.5px Fira Code, monospace';
+        const tW = ctx.measureText(bankText).width;
+        const bY = sp.y + (node.elevation && node.elevation !== 0 ? 30 : 16);
+        ctx.fillStyle = 'rgba(245, 158, 11, 0.2)';
+        ctx.strokeStyle = '#F59E0B';
+        ctx.lineWidth = 1;
+        drawPill(sp.x - tW / 2 - 4, bY - 6, tW + 8, 12, 3);
+        ctx.fill();
+        ctx.stroke();
+
+        ctx.fillStyle = '#FBBF24';
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        ctx.fillText(bankText, sp.x, bY);
       }
     });
 
@@ -447,7 +522,8 @@ export const EditorCanvas: React.FC<EditorCanvasProps> = ({
     snapEnabled,
     isSelectingBox,
     selectionBoxStart,
-    selectionBoxEnd
+    selectionBoxEnd,
+    corners
   ]);
 
   // Mouse Handlers

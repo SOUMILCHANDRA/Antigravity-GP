@@ -20,6 +20,7 @@ import {
 } from 'lucide-react';
 import { TrackConfig, EditorTool } from '../../types/track';
 import { estimateLapTime } from '../../utils/spline';
+import { TrackStats } from '../../utils/trackAnalysis';
 
 interface EditorToolbarProps {
   track: TrackConfig;
@@ -43,6 +44,7 @@ interface EditorToolbarProps {
   onToggleHistoryPanel: () => void;
   isHistoryPanelOpen: boolean;
   onMoveStartLine: (nodeId: string) => void;
+  stats?: TrackStats;
 }
 
 export const EditorToolbar: React.FC<EditorToolbarProps> = ({
@@ -66,7 +68,8 @@ export const EditorToolbar: React.FC<EditorToolbarProps> = ({
   onZoomFit,
   onToggleHistoryPanel,
   isHistoryPanelOpen,
-  onMoveStartLine
+  onMoveStartLine,
+  stats
 }) => {
   const isValidTrack = track.isClosed && track.nodes.length >= 3;
   const canCloseCircuit = !track.isClosed && track.nodes.length >= 3;
@@ -362,6 +365,20 @@ export const EditorToolbar: React.FC<EditorToolbarProps> = ({
             <span className="text-slate-400 font-sans">TRACK LENGTH</span>
             <span className="font-bold text-slate-200">
               {isValidTrack ? `${(circuitLength / 1000).toFixed(3)} km` : '—'}
+            </span>
+          </div>
+
+          <div className="flex justify-between items-center py-1 border-b border-[#1E2638]">
+            <span className="text-slate-400 font-sans">CORNERS / TURNS</span>
+            <span className="font-bold text-emerald-400">
+              {stats ? `${stats.cornerCount} TURNS` : '—'}
+            </span>
+          </div>
+
+          <div className="flex justify-between items-center py-1 border-b border-[#1E2638]">
+            <span className="text-slate-400 font-sans">ELEVATION DELTA</span>
+            <span className="font-bold text-purple-400">
+              {stats ? `Δ ${stats.elevationDeltaMeters}m` : '—'}
             </span>
           </div>
 

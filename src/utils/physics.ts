@@ -70,10 +70,19 @@ export function updateCarPhysics(
   // Track zones: Asphalt Road -> Kerb -> Sand/Gravel Runoff Trap
   const halfWidth = nearestPoint ? nearestPoint.width / 2 : 7;
   const kerbMargin = 0.65; // 0.65m kerbs
+  const runoffMargin = nearestPoint ? (nearestPoint.runoffWidth || 8.5) : 8.5;
   const isOnTrack = distance <= halfWidth;
   const isOnKerb = distance > halfWidth && distance <= (halfWidth + kerbMargin);
   const isInGravel = distance > (halfWidth + kerbMargin);
   const isOffTrack = isInGravel;
+
+  // Banking angle physics (normal force boost & lateral grip)
+  const bankDeg = nearestPoint ? (nearestPoint.banking || 0) : 0;
+  const bankRad = bankDeg * (Math.PI / 180);
+  const cosBank = Math.cos(bankRad);
+  // Banking increases tire normal load: F_N = m * (g * cos(theta) + v^2/R * sin(theta))
+  // Effective grip factor boosted by up to 15% on banked carousels
+  const bankingGripBoost = Math.max(0.95, 1.0 + Math.abs(Math.sin(bankRad)) * 0.35);
 
   // 2. Steering Input (-1 to +1)
   let targetSteer = 0;
@@ -103,9 +112,9 @@ export function updateCarPhysics(
   const engineBrakingVal = p.engineBraking;
   const gripMultiplier = p.gripMultiplier;
 
-  // Surface Grip: base grip adjusted by tire/aero multiplier
+  // Surface Grip: base grip adjusted by tire/aero multiplier and banking
   const baseSurfaceGrip = isInGravel ? 0.45 : (isOnKerb ? 0.90 : 1.0);
-  const surfaceGrip = baseSurfaceGrip * (isOnTrack ? gripMultiplier : 1.0);
+  const surfaceGrip = baseSurfaceGrip * (isOnTrack ? gripMultiplier * bankingGripBoost : 1.0);
 
   // Natural aerodynamic drag
   const dragForce = dragCoeff * currentSpeedMs * currentSpeedMs + rollingFriction;
@@ -197,8 +206,16 @@ export function updateCarPhysics(
   const curPosY = isNaN(currentState.position.y) ? 0.1 : currentState.position.y;
   const curPosZ = isNaN(currentState.position.z) ? 0 : currentState.position.z;
 
-  const targetY = nearestPoint ? nearestPoint.position.y : 0;
-  const newY = curPosY + (targetY - curPosY) * (dt * 6.0);
+  let targetY = nearestPoint ? nearestPoint.position.y : 0;
+  if (nearestPoint) {
+    const toCarX = curPosX - nearestPoint.position.x;
+    const toCarZ = curPosZ - nearestPoint.position.z;
+    const latOffset = toCarX * nearestPoint.binormal.x + toCarZ * nearestPoint.binormal.z;
+    const sinBank = Math.sin(bankRad);
+    const bLatY = nearestPoint.binormal.y * cosBank + nearestPoint.normal.y * sinBank;
+    targetY = nearestPoint.position.y + bLatY * latOffset;
+  }
+  const newY = curPosY + (targetY - curPosY) * (dt * 8.0);
 
   const newSpeedKmh = Math.round(newSpeedMs * 3.6);
 
@@ -208,7 +225,7 @@ export function updateCarPhysics(
       y: isNaN(newY) ? curPosY : newY,
       z: curPosZ + (isNaN(dz) ? 0 : dz)
     },
-    rotation: { x: 0, y: newYaw, z: steering * -0.05 },
+    rotation: { x: 0, y: newYaw, z: (steering * -0.05) + bankRad },
     velocity: {
       x: dirX * newSpeedMs,
       y: 0,
