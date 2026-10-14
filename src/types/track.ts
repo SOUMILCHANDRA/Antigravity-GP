@@ -81,6 +81,7 @@ export interface TrackConfig {
   pitLane?: PitLaneConfig;
   dressing?: TrackDressingConfig;
   underlay?: MapUnderlayConfig;
+  venueStyle?: 'gp' | 'club' | 'street' | 'karting';
 }
 
 export type EditorTool = 'draw' | 'edit' | 'erase' | 'pan';

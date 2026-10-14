@@ -19,8 +19,11 @@ import { TrackStatsPanel } from './components/TrackEditor/TrackStatsPanel';
 import { PresetModal } from './components/TrackEditor/PresetModal';
 import { MapUnderlayPanel } from './components/TrackEditor/MapUnderlayPanel';
 import { DressStagePanel } from './components/TrackEditor/DressStagePanel';
+import { ShowStagePanel } from './components/TrackEditor/ShowStagePanel';
 
 import { RaceCanvas } from './components/Race3D/RaceCanvas';
+import { FlythroughViewer } from './components/Race3D/FlythroughViewer';
+import { FlythroughCameraMode } from './components/Race3D/FlythroughCamera';
 import { RaceHUD } from './components/UI/RaceHUD';
 import { formatTime } from './utils/time';
 import { Minimap } from './components/UI/Minimap';
@@ -48,6 +51,13 @@ export function App() {
   const [playerCarId, setPlayerCarId] = useState<string>(DEFAULT_PLAYER_CAR_ID);
   const [aiCarId, setAiCarId] = useState<string>(DEFAULT_AI_CAR_ID);
   const [showGarageModal, setShowGarageModal] = useState<boolean>(false);
+
+  // Stage 5 Show Mode & 3D Flythrough State
+  const [is3DFlythrough, setIs3DFlythrough] = useState<boolean>(false);
+  const [flythroughProgress, setFlythroughProgress] = useState<number>(0);
+  const [isFlythroughPlaying, setIsFlythroughPlaying] = useState<boolean>(true);
+  const [flythroughSpeed, setFlythroughSpeed] = useState<number>(1.0);
+  const [flythroughCameraMode, setFlythroughCameraMode] = useState<FlythroughCameraMode>('drone');
 
   // History stack for Undo/Redo
   const historyRef = useRef<TrackHistory>(new TrackHistory(EMPTY_TRACK));
@@ -671,24 +681,36 @@ export function App() {
       <main className="flex-1 relative w-full h-[calc(100vh-64px)] overflow-hidden">
         {mode === 'builder' ? (
           <div className="flex w-full h-full relative">
-            <EditorCanvas
-              track={track}
-              setTrack={updateTrackState}
-              selectedNodeId={selectedNodeId}
-              setSelectedNodeId={setSelectedNodeId}
-              selectedNodeIds={selectedNodeIds}
-              setSelectedNodeIds={setSelectedNodeIds}
-              activeTool={activeTool}
-              setActiveTool={setActiveTool}
-              snapEnabled={snapEnabled}
-              onAddPoint={handleAddPoint}
-              onCloseCircuit={() => updateTrackState(prev => ({ ...prev, isClosed: true }), 'Close Circuit')}
-              onMoveStartLine={handleMoveStartLine}
-              corners={trackStats.corners}
-              isCalibrating={isCalibrating}
-              calibrationPoints={calibrationPoints}
-              onCalibrationClick={handleCalibrationClick}
-            />
+            {studioStage === 'show' && is3DFlythrough ? (
+              <FlythroughViewer
+                splinePoints={splinePoints}
+                trackConfig={track}
+                isPlaying={isFlythroughPlaying}
+                progress={flythroughProgress}
+                onProgressChange={setFlythroughProgress}
+                speedMultiplier={flythroughSpeed}
+                cameraMode={flythroughCameraMode}
+              />
+            ) : (
+              <EditorCanvas
+                track={track}
+                setTrack={updateTrackState}
+                selectedNodeId={selectedNodeId}
+                setSelectedNodeId={setSelectedNodeId}
+                selectedNodeIds={selectedNodeIds}
+                setSelectedNodeIds={setSelectedNodeIds}
+                activeTool={activeTool}
+                setActiveTool={setActiveTool}
+                snapEnabled={snapEnabled}
+                onAddPoint={handleAddPoint}
+                onCloseCircuit={() => updateTrackState(prev => ({ ...prev, isClosed: true }), 'Close Circuit')}
+                onMoveStartLine={handleMoveStartLine}
+                corners={trackStats.corners}
+                isCalibrating={isCalibrating}
+                calibrationPoints={calibrationPoints}
+                onCalibrationClick={handleCalibrationClick}
+              />
+            )}
 
             {/* Stage 1 & 2: Shape Stage Point Inspector (Elevation, width, banking, runoff, naming) */}
             {studioStage === 'shape' && (
@@ -713,15 +735,41 @@ export function App() {
               />
             )}
 
-            {/* Circuit Telemetry & FIA Safety Validation Panel */}
-            <TrackStatsPanel
-              stats={trackStats}
-              issues={validationIssues}
-              onSelectNode={(nodeId) => {
-                setSelectedNodeId(nodeId);
-                setSelectedNodeIds([nodeId]);
-              }}
-            />
+            {/* Stage 5: Show Stage Panel (Telemetry, Turns, Elevation & Speed Chart, 3D Flythrough, Export/Import) */}
+            {studioStage === 'show' && (
+              <ShowStagePanel
+                track={track}
+                setTrack={updateTrackState}
+                splinePoints={splinePoints}
+                playerCarId={playerCarId}
+                is3DFlythrough={is3DFlythrough}
+                setIs3DFlythrough={setIs3DFlythrough}
+                flythroughProgress={flythroughProgress}
+                setFlythroughProgress={setFlythroughProgress}
+                isFlythroughPlaying={isFlythroughPlaying}
+                setIsFlythroughPlaying={setIsFlythroughPlaying}
+                flythroughSpeed={flythroughSpeed}
+                setFlythroughSpeed={setFlythroughSpeed}
+                flythroughCameraMode={flythroughCameraMode}
+                setFlythroughCameraMode={setFlythroughCameraMode}
+                onEnterRaceMode={() => {
+                  clearAllInputs();
+                  setMode('race');
+                }}
+              />
+            )}
+
+            {/* Circuit Telemetry & FIA Safety Validation Panel (Shown in Shape & Dress stages) */}
+            {studioStage !== 'show' && (
+              <TrackStatsPanel
+                stats={trackStats}
+                issues={validationIssues}
+                onSelectNode={(nodeId) => {
+                  setSelectedNodeId(nodeId);
+                  setSelectedNodeIds([nodeId]);
+                }}
+              />
+            )}
 
             {/* Stage 3 Map Tracing Underlay Panel */}
             <MapUnderlayPanel
