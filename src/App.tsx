@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react';
-import { AppMode, CarState, LapTelemetry, TrackConfig, TrackNode, AICompetitorState, RaceBattleState, AIDifficulty, EditorTool } from './types/track';
+import { AppMode, CarState, LapTelemetry, TrackConfig, TrackNode, AICompetitorState, RaceBattleState, AIDifficulty, EditorTool, StudioStage } from './types/track';
 import { EMPTY_TRACK } from './utils/presets';
 import { buildTrackCurve, sampleSplinePoints, getNearestSplinePoint, checkFinishLineCrossing } from './utils/spline';
 import { createInitialCarState, updateCarPhysics, resetVehicle } from './utils/physics';
@@ -18,6 +18,7 @@ import { PointInspector } from './components/TrackEditor/PointInspector';
 import { TrackStatsPanel } from './components/TrackEditor/TrackStatsPanel';
 import { PresetModal } from './components/TrackEditor/PresetModal';
 import { MapUnderlayPanel } from './components/TrackEditor/MapUnderlayPanel';
+import { DressStagePanel } from './components/TrackEditor/DressStagePanel';
 
 import { RaceCanvas } from './components/Race3D/RaceCanvas';
 import { RaceHUD } from './components/UI/RaceHUD';
@@ -28,6 +29,7 @@ import { CarSelectModal } from './components/UI/CarSelectModal';
 
 export function App() {
   const [mode, setMode] = useState<AppMode>('builder');
+  const [studioStage, setStudioStage] = useState<StudioStage>('shape');
   const [track, setTrack] = useState<TrackConfig>(EMPTY_TRACK);
   const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null);
   const [selectedNodeIds, setSelectedNodeIds] = useState<string[]>([]);
@@ -434,7 +436,7 @@ export function App() {
 
       // 1. Step Player Physics using carStateRef
       const pSpecs = CAR_PRESETS[playerCarId] || CAR_PRESETS[DEFAULT_PLAYER_CAR_ID];
-      let nextState = updateCarPhysics(carStateRef.current, inputs, splinePoints, dt, pSpecs);
+      let nextState = updateCarPhysics(carStateRef.current, inputs, splinePoints, dt, pSpecs, track);
 
       // 2. Step AI Competitor Physics & Intelligent Racing Logic (if enabled)
       if (aiEnabled && splinePoints.length >= 4) {
@@ -662,6 +664,8 @@ export function App() {
         circuitLength={circuitLength}
         playerCarId={playerCarId}
         onOpenGarage={() => setShowGarageModal(true)}
+        studioStage={studioStage}
+        onStageChange={setStudioStage}
       />
 
       <main className="flex-1 relative w-full h-[calc(100vh-64px)] overflow-hidden">
@@ -686,19 +690,30 @@ export function App() {
               onCalibrationClick={handleCalibrationClick}
             />
 
-            {/* Stage 2 Point Inspector (Per-point elevation, width, banking, runoff, naming) */}
-            <PointInspector
-              track={track}
-              setTrack={updateTrackState}
-              selectedNodeId={selectedNodeId}
-              selectedNodeIds={selectedNodeIds}
-              setSelectedNodeId={setSelectedNodeId}
-              setSelectedNodeIds={setSelectedNodeIds}
-              corners={trackStats.corners}
-              onMoveStartLine={handleMoveStartLine}
-            />
+            {/* Stage 1 & 2: Shape Stage Point Inspector (Elevation, width, banking, runoff, naming) */}
+            {studioStage === 'shape' && (
+              <PointInspector
+                track={track}
+                setTrack={updateTrackState}
+                selectedNodeId={selectedNodeId}
+                selectedNodeIds={selectedNodeIds}
+                setSelectedNodeId={setSelectedNodeId}
+                setSelectedNodeIds={setSelectedNodeIds}
+                corners={trackStats.corners}
+                onMoveStartLine={handleMoveStartLine}
+              />
+            )}
 
-            {/* Stage 2 Circuit Telemetry & FIA Safety Validation Panel */}
+            {/* Stage 4: Dress Stage Panel (Kerb Styles, Asphalt, Runoff, Pit Lane & 3D Facilities) */}
+            {studioStage === 'dress' && (
+              <DressStagePanel
+                track={track}
+                setTrack={updateTrackState}
+                corners={trackStats.corners}
+              />
+            )}
+
+            {/* Circuit Telemetry & FIA Safety Validation Panel */}
             <TrackStatsPanel
               stats={trackStats}
               issues={validationIssues}

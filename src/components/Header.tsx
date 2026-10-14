@@ -8,7 +8,7 @@ import {
   Play,
   Car
 } from 'lucide-react';
-import { AppMode, TrackConfig } from '../types/track';
+import { AppMode, TrackConfig, StudioStage } from '../types/track';
 import { CAR_PRESETS, DEFAULT_PLAYER_CAR_ID } from '../utils/carPresets';
 
 interface HeaderProps {
@@ -22,6 +22,8 @@ interface HeaderProps {
   circuitLength: number;
   playerCarId: string;
   onOpenGarage: () => void;
+  studioStage?: StudioStage;
+  onStageChange?: (stage: StudioStage) => void;
 }
 
 export const Header: React.FC<HeaderProps> = ({
@@ -34,7 +36,9 @@ export const Header: React.FC<HeaderProps> = ({
   onImportTrack,
   circuitLength,
   playerCarId,
-  onOpenGarage
+  onOpenGarage,
+  studioStage = 'shape',
+  onStageChange
 }) => {
   const isValidTrack = currentTrack.isClosed && currentTrack.nodes.length >= 3;
   const currentCar = CAR_PRESETS[playerCarId] || CAR_PRESETS[DEFAULT_PLAYER_CAR_ID];
@@ -51,10 +55,52 @@ export const Header: React.FC<HeaderProps> = ({
             Antigravity <span className="text-[#E10600]">GP</span>
           </h1>
           <p className="text-[11px] text-slate-400 font-mono">
-            {mode === 'builder' ? 'TRACK DESIGNER' : '3D RACE MODE'}
+            {mode === 'builder' ? 'CIRCUIT STUDIO' : '3D RACE SIM'}
           </p>
         </div>
       </div>
+
+      {/* Studio Stage Switcher (Shape -> Dress -> Show) */}
+      {mode === 'builder' && (
+        <div className="hidden lg:flex items-center gap-1.5 p-1 bg-[#121721] rounded-xl border border-[#1E2638] text-xs font-mono">
+          <button
+            onClick={() => onStageChange?.('shape')}
+            className={`px-3.5 py-1.5 rounded-lg font-bold flex items-center gap-1.5 transition-all cursor-pointer ${
+              studioStage === 'shape'
+                ? 'bg-cyan-950 text-cyan-300 border border-cyan-500 shadow-md'
+                : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800'
+            }`}
+          >
+            <span>1. SHAPE</span>
+          </button>
+
+          <span className="text-slate-600 font-bold">→</span>
+
+          <button
+            onClick={() => onStageChange?.('dress')}
+            className={`px-3.5 py-1.5 rounded-lg font-bold flex items-center gap-1.5 transition-all cursor-pointer ${
+              studioStage === 'dress'
+                ? 'bg-purple-950 text-purple-300 border border-purple-500 shadow-md'
+                : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800'
+            }`}
+          >
+            <span>2. DRESS</span>
+          </button>
+
+          <span className="text-slate-600 font-bold">→</span>
+
+          <button
+            onClick={() => onStageChange?.('show')}
+            className={`px-3.5 py-1.5 rounded-lg font-bold flex items-center gap-1.5 transition-all cursor-pointer ${
+              studioStage === 'show'
+                ? 'bg-emerald-950 text-emerald-300 border border-emerald-500 shadow-md'
+                : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800'
+            }`}
+          >
+            <span>3. SHOW</span>
+          </button>
+        </div>
+      )}
 
       {/* Center Mode Switcher */}
       <div className="flex items-center gap-1.5 p-1 bg-[#121721] rounded-xl border border-[#1E2638]">

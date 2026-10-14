@@ -1,4 +1,4 @@
-import { CarState, SplinePoint } from '../types/track';
+import { CarState, SplinePoint, TrackConfig } from '../types/track';
 import { getNearestSplinePoint, getTrackSpawnTransform } from './spline';
 import { CAR_PRESETS, CarSpecs, DEFAULT_PLAYER_CAR_ID } from './carPresets';
 
@@ -52,7 +52,8 @@ export function updateCarPhysics(
   inputs: CarControlInputs,
   splinePoints: SplinePoint[],
   deltaSeconds: number,
-  carSpecs?: CarSpecs
+  carSpecs?: CarSpecs,
+  trackConfig?: TrackConfig
 ): CarState {
   const specs = carSpecs || CAR_PRESETS[currentState.carId || DEFAULT_PLAYER_CAR_ID] || CAR_PRESETS[DEFAULT_PLAYER_CAR_ID];
   const p = specs.physics;
@@ -67,13 +68,30 @@ export function updateCarPhysics(
     splinePoints
   );
 
-  // Track zones: Asphalt Road -> Kerb -> Sand/Gravel Runoff Trap
+  // Check Pit Lane Zone
+  let isInsidePitLane = false;
   const halfWidth = nearestPoint ? nearestPoint.width / 2 : 7;
+  if (trackConfig?.pitLane?.enabled && nearestPoint && splinePoints.length > 2) {
+    const isRight = trackConfig.pitLane.side !== 'left';
+    const sideMult = isRight ? 1 : -1;
+    const pitLaneWidth = trackConfig.pitLane.width || 7.5;
+    const toCarX = currentState.position.x - nearestPoint.position.x;
+    const toCarZ = currentState.position.z - nearestPoint.position.z;
+    const latOffset = (toCarX * nearestPoint.binormal.x + toCarZ * nearestPoint.binormal.z) * sideMult;
+    const trackLen = splinePoints[splinePoints.length - 1].distance;
+
+    const isNearStart = nearestPoint.distance < 120 || (trackLen > 0 && nearestPoint.distance > trackLen - 120);
+    if (isNearStart && latOffset >= halfWidth + 0.6 && latOffset <= halfWidth + 0.8 + pitLaneWidth) {
+      isInsidePitLane = true;
+    }
+  }
+
+  // Track zones: Asphalt Road -> Kerb -> Sand/Gravel Runoff Trap
   const kerbMargin = 0.65; // 0.65m kerbs
   const runoffMargin = nearestPoint ? (nearestPoint.runoffWidth || 8.5) : 8.5;
-  const isOnTrack = distance <= halfWidth;
-  const isOnKerb = distance > halfWidth && distance <= (halfWidth + kerbMargin);
-  const isInGravel = distance > (halfWidth + kerbMargin);
+  const isOnTrack = distance <= halfWidth || isInsidePitLane;
+  const isOnKerb = !isInsidePitLane && distance > halfWidth && distance <= (halfWidth + kerbMargin);
+  const isInGravel = !isInsidePitLane && distance > (halfWidth + kerbMargin);
   const isOffTrack = isInGravel;
 
   // Banking angle physics (normal force boost & lateral grip)
@@ -161,6 +179,14 @@ export function updateCarPhysics(
   // Sand/Gravel Pit speed cap: Deep loose sand bogs the car down to sand crawl (~28 km/h max)
   if (isInGravel && newSpeedMs > 8.0) {
     newSpeedMs = Math.max(8.0, newSpeedMs - dt * 22.0);
+  }
+
+  // Pit Lane Speed Limiter (60 km/h or 80 km/h governor)
+  if (isInsidePitLane) {
+    const pitLimitMs = (trackConfig?.pitLane?.speedLimitKmh || 80) / 3.6;
+    if (newSpeedMs > pitLimitMs) {
+      newSpeedMs = Math.max(pitLimitMs, newSpeedMs - dt * 14.0);
+    }
   }
 
   // Cap forward top speed
