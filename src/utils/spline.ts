@@ -44,8 +44,10 @@ export function sampleSplinePoints(
     const n1 = nodes[idx1] || nodes[0];
     const n2 = nodes[idx2] || nodes[0];
 
-    const width = n1.width + (n2.width - n1.width) * factor;
-    const elevation = n1.elevation + (n2.elevation - n1.elevation) * factor;
+    const width = (n1.width ?? 14) + ((n2.width ?? 14) - (n1.width ?? 14)) * factor;
+    const elevation = (n1.elevation ?? 0) + ((n2.elevation ?? 0) - (n1.elevation ?? 0)) * factor;
+    const banking = (n1.banking ?? 0) + ((n2.banking ?? 0) - (n1.banking ?? 0)) * factor;
+    const runoffWidth = (n1.runoffWidth ?? 8.5) + ((n2.runoffWidth ?? 8.5) - (n1.runoffWidth ?? 8.5)) * factor;
 
     points.push({
       position: { x: position.x, y: position.y, z: position.z },
@@ -54,6 +56,8 @@ export function sampleSplinePoints(
       binormal: { x: binormal.x, y: binormal.y, z: binormal.z },
       width,
       elevation,
+      banking,
+      runoffWidth,
       t,
       distance: t * totalLength
     });

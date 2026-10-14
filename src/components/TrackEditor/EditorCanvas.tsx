@@ -1,14 +1,22 @@
 import React, { useRef, useEffect, useState, useCallback } from 'react';
-import { TrackNode, TrackConfig } from '../../types/track';
-import { buildTrackCurve, sampleSplinePoints } from '../../utils/spline';
+import { TrackNode, TrackConfig, EditorTool } from '../../types/track';
+import { buildTrackCurve, sampleSplinePoints, getNearestSplinePoint } from '../../utils/spline';
 import { Plus } from 'lucide-react';
 
 interface EditorCanvasProps {
   track: TrackConfig;
-  setTrack: React.Dispatch<React.SetStateAction<TrackConfig>>;
+  setTrack: (updater: TrackConfig | ((prev: TrackConfig) => TrackConfig), actionDescription?: string) => void;
   selectedNodeId: string | null;
   setSelectedNodeId: (id: string | null) => void;
-  onAddPoint: (point: { x: number; y: number }) => void;
+  selectedNodeIds: string[];
+  setSelectedNodeIds: (ids: string[] | ((prev: string[]) => string[])) => void;
+  activeTool: EditorTool;
+  setActiveTool: (tool: EditorTool) => void;
+  snapEnabled: boolean;
+  onAddPoint: (point: { x: number; y: number }, snapAngle?: boolean) => void;
+  onCloseCircuit: () => void;
+  onMoveStartLine: (nodeId: string) => void;
+  onZoomFitRequest?: () => void;
 }
 
 export const EditorCanvas: React.FC<EditorCanvasProps> = ({
@@ -16,7 +24,14 @@ export const EditorCanvas: React.FC<EditorCanvasProps> = ({
   setTrack,
   selectedNodeId,
   setSelectedNodeId,
-  onAddPoint
+  selectedNodeIds,
+  setSelectedNodeIds,
+  activeTool,
+  setActiveTool,
+  snapEnabled,
+  onAddPoint,
+  onCloseCircuit,
+  onMoveStartLine
 }) => {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
 
@@ -27,8 +42,21 @@ export const EditorCanvas: React.FC<EditorCanvasProps> = ({
   // Mouse interaction state
   const [isPanning, setIsPanning] = useState<boolean>(false);
   const [panStart, setPanStart] = useState<{ x: number; y: number }>({ x: 0, y: 0 });
-  const [draggedNodeId, setDraggedNodeId] = useState<string | null>(null);
   const [mouseWorld, setMouseWorld] = useState<{ x: number; y: number }>({ x: 0, y: 0 });
+  const [draggedNodeId, setDraggedNodeId] = useState<string | null>(null);
+  const [dragInitialPositions, setDragInitialPositions] = useState<Map<string, { x: number; y: number }>>(new Map());
+  const [dragStartWorld, setDragStartWorld] = useState<{ x: number; y: number }>({ x: 0, y: 0 });
+
+  // Space-key pan state
+  const isSpacePressedRef = useRef<boolean>(false);
+
+  // Rubber-band multi-select box
+  const [isSelectingBox, setIsSelectingBox] = useState<boolean>(false);
+  const [selectionBoxStart, setSelectionBoxStart] = useState<{ x: number; y: number } | null>(null);
+  const [selectionBoxEnd, setSelectionBoxEnd] = useState<{ x: number; y: number } | null>(null);
+
+  // Context menu position
+  const [contextMenu, setContextMenu] = useState<{ x: number; y: number; nodeId: string } | null>(null);
 
   // Canvas dimensions
   const [canvasSize, setCanvasSize] = useState<{ width: number; height: number }>({
@@ -36,7 +64,6 @@ export const EditorCanvas: React.FC<EditorCanvasProps> = ({
     height: window.innerHeight - 64
   });
 
-  // Keep internal canvas dimensions synchronized with window/container layout
   useEffect(() => {
     const handleResize = () => {
       setCanvasSize({
@@ -48,28 +75,60 @@ export const EditorCanvas: React.FC<EditorCanvasProps> = ({
     return () => window.removeEventListener('resize', handleResize);
   }, []);
 
-  // 1. Unified Precise Screen-to-World Coordinate Conversion
+  // Zoom-to-fit calculation
+  const handleZoomToFit = useCallback(() => {
+    if (track.nodes.length === 0) {
+      setOffset({ x: 0, y: 0 });
+      setZoom(1.0);
+      return;
+    }
+
+    let minX = Infinity;
+    let maxX = -Infinity;
+    let minY = Infinity;
+    let maxY = -Infinity;
+
+    track.nodes.forEach(n => {
+      minX = Math.min(minX, n.x);
+      maxX = Math.max(maxX, n.x);
+      minY = Math.min(minY, n.y);
+      maxY = Math.max(maxY, n.y);
+    });
+
+    const padding = 120;
+    const trackWidth = (maxX - minX) || 200;
+    const trackHeight = (maxY - minY) || 200;
+
+    const scaleX = (canvasSize.width - padding * 2) / trackWidth;
+    const scaleY = (canvasSize.height - padding * 2) / trackHeight;
+    const targetZoom = Math.max(0.2, Math.min(2.5, Math.min(scaleX, scaleY)));
+
+    const midX = (minX + maxX) / 2;
+    const midY = (minY + maxY) / 2;
+
+    setZoom(targetZoom);
+    setOffset({ x: -midX * targetZoom, y: -midY * targetZoom });
+  }, [track.nodes, canvasSize]);
+
+  // Coordinate Conversion: Screen to World
   const screenToWorld = useCallback((clientX: number, clientY: number) => {
     const canvas = canvasRef.current;
     if (!canvas) return { x: 0, y: 0 };
     const rect = canvas.getBoundingClientRect();
 
-    // Scale ratios between actual internal drawing pixels & CSS layout pixels
     const scaleX = canvas.width / (rect.width || 1);
     const scaleY = canvas.height / (rect.height || 1);
 
-    // Canvas internal pixel coordinates
     const canvasX = (clientX - rect.left) * scaleX;
     const canvasY = (clientY - rect.top) * scaleY;
 
-    // Apply inverse editor camera pan/zoom transform (centered origin)
     const worldX = (canvasX - canvas.width / 2 - offset.x) / zoom;
     const worldY = (canvasY - canvas.height / 2 - offset.y) / zoom;
 
     return { x: worldX, y: worldY };
   }, [offset, zoom]);
 
-  // 2. Unified Precise World-to-Canvas Coordinate Conversion
+  // Coordinate Conversion: World to Canvas
   const worldToCanvas = useCallback((wx: number, wy: number) => {
     const canvas = canvasRef.current;
     if (!canvas) return { x: 0, y: 0 };
@@ -78,7 +137,84 @@ export const EditorCanvas: React.FC<EditorCanvasProps> = ({
     return { x: cx, y: cy };
   }, [offset, zoom]);
 
-  // Main Canvas Render Loop
+  // Keyboard navigation & Shortcuts (WASD Pan, F Zoom to Fit, Nudge, Space-drag)
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) return;
+
+      if (e.code === 'Space') {
+        isSpacePressedRef.current = true;
+      }
+
+      // F Key: Zoom to fit
+      if (e.code === 'KeyF') {
+        handleZoomToFit();
+      }
+
+      // Tool switching shortcuts
+      if (e.code === 'KeyP') setActiveTool('draw');
+      if (e.code === 'KeyE') setActiveTool('edit');
+      if (e.code === 'KeyX') setActiveTool('erase');
+
+      // WASD Pan
+      const panStep = (e.shiftKey ? 80 : 35);
+      if (e.code === 'KeyW' && !e.ctrlKey) setOffset(prev => ({ ...prev, y: prev.y + panStep }));
+      if (e.code === 'KeyS' && !e.ctrlKey) setOffset(prev => ({ ...prev, y: prev.y - panStep }));
+      if (e.code === 'KeyA') setOffset(prev => ({ ...prev, x: prev.x + panStep }));
+      if (e.code === 'KeyD') setOffset(prev => ({ ...prev, x: prev.x - panStep }));
+
+      // Arrow keys: Nudge selected nodes (1m default, 10m with Shift)
+      const isArrow = ['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'].includes(e.code);
+      if (isArrow) {
+        e.preventDefault();
+        const activeIds = selectedNodeIds.length > 0 ? selectedNodeIds : (selectedNodeId ? [selectedNodeId] : []);
+        if (activeIds.length > 0) {
+          const step = e.shiftKey ? 10 : 1;
+          const dx = e.code === 'ArrowLeft' ? -step : (e.code === 'ArrowRight' ? step : 0);
+          const dy = e.code === 'ArrowUp' ? -step : (e.code === 'ArrowDown' ? step : 0);
+
+          setTrack(prev => ({
+            ...prev,
+            nodes: prev.nodes.map(n => {
+              if (activeIds.includes(n.id) && !n.locked) {
+                return { ...n, x: n.x + dx, y: n.y + dy };
+              }
+              return n;
+            })
+          }), `Nudge ${activeIds.length} node(s)`);
+        }
+      }
+
+      // Delete / Backspace: Erase selected nodes
+      if (e.code === 'Delete' || e.code === 'Backspace') {
+        const activeIds = selectedNodeIds.length > 0 ? selectedNodeIds : (selectedNodeId ? [selectedNodeId] : []);
+        if (activeIds.length > 0) {
+          setTrack(prev => ({
+            ...prev,
+            nodes: prev.nodes.filter(n => !activeIds.includes(n.id)),
+            isClosed: prev.nodes.length - activeIds.length < 3 ? false : prev.isClosed
+          }), `Delete ${activeIds.length} node(s)`);
+          setSelectedNodeId(null);
+          setSelectedNodeIds([]);
+        }
+      }
+    };
+
+    const handleKeyUp = (e: KeyboardEvent) => {
+      if (e.code === 'Space') {
+        isSpacePressedRef.current = false;
+      }
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+    window.addEventListener('keyup', handleKeyUp);
+    return () => {
+      window.removeEventListener('keydown', handleKeyDown);
+      window.removeEventListener('keyup', handleKeyUp);
+    };
+  }, [handleZoomToFit, selectedNodeId, selectedNodeIds, setTrack, setSelectedNodeId, setSelectedNodeIds, setActiveTool]);
+
+  // Main Canvas Render
   useEffect(() => {
     const canvas = canvasRef.current;
     if (!canvas) return;
@@ -87,16 +223,16 @@ export const EditorCanvas: React.FC<EditorCanvasProps> = ({
 
     ctx.clearRect(0, 0, canvas.width, canvas.height);
 
-    // 1. Dark Motorsport Technical Grid
+    // 1. Motorsport Technical Background Grid
     ctx.fillStyle = '#0B0E14';
     ctx.fillRect(0, 0, canvas.width, canvas.height);
 
-    const gridSizeMeters = 40;
+    const gridSizeMeters = snapEnabled ? 20 : 40;
     const gridPixelSize = gridSizeMeters * zoom;
     const startX = (offset.x + canvas.width / 2) % gridPixelSize;
     const startY = (offset.y + canvas.height / 2) % gridPixelSize;
 
-    ctx.strokeStyle = '#141A26';
+    ctx.strokeStyle = snapEnabled ? '#1A2332' : '#141A26';
     ctx.lineWidth = 1;
     for (let x = startX; x < canvas.width; x += gridPixelSize) {
       ctx.beginPath();
@@ -111,7 +247,7 @@ export const EditorCanvas: React.FC<EditorCanvasProps> = ({
       ctx.stroke();
     }
 
-    // Origin Center Axes
+    // Origin Axes
     const origin = worldToCanvas(0, 0);
     ctx.strokeStyle = '#1E2B42';
     ctx.lineWidth = 1.5;
@@ -122,27 +258,27 @@ export const EditorCanvas: React.FC<EditorCanvasProps> = ({
     ctx.lineTo(origin.x, canvas.height);
     ctx.stroke();
 
-    // 2. Draw Track Spline preview or asphalt surface if closed
+    // 2. Track Rendering
     if (track.nodes.length >= 2) {
       const curve = buildTrackCurve(track.nodes, track.isClosed);
       const samples = sampleSplinePoints(curve, track.nodes, 350);
 
       if (track.isClosed && samples.length > 0) {
-        // Draw Outer Runoff/Grass Boundary
         ctx.lineCap = 'round';
         ctx.lineJoin = 'round';
 
+        // Outer Runoff / Sand Boundary
         ctx.beginPath();
         samples.forEach((p, idx) => {
           const sp = worldToCanvas(p.position.x, p.position.z);
           if (idx === 0) ctx.moveTo(sp.x, sp.y);
           else ctx.lineTo(sp.x, sp.y);
         });
-        ctx.strokeStyle = '#222B3D';
-        ctx.lineWidth = (track.defaultWidth + 10) * zoom;
+        ctx.strokeStyle = '#382D20';
+        ctx.lineWidth = (track.defaultWidth + 18) * zoom;
         ctx.stroke();
 
-        // Draw Red/White Kerb Edge Lines
+        // Kerb Edges
         ctx.beginPath();
         samples.forEach((p, idx) => {
           const sp = worldToCanvas(p.position.x, p.position.z);
@@ -150,10 +286,10 @@ export const EditorCanvas: React.FC<EditorCanvasProps> = ({
           else ctx.lineTo(sp.x, sp.y);
         });
         ctx.strokeStyle = '#E10600';
-        ctx.lineWidth = (track.defaultWidth + 3.5) * zoom;
+        ctx.lineWidth = (track.defaultWidth + 2.5) * zoom;
         ctx.stroke();
 
-        // Main Charcoal Asphalt Road Surface
+        // Asphalt Road Surface
         ctx.beginPath();
         samples.forEach((p, idx) => {
           const sp = worldToCanvas(p.position.x, p.position.z);
@@ -164,7 +300,7 @@ export const EditorCanvas: React.FC<EditorCanvasProps> = ({
         ctx.lineWidth = track.defaultWidth * zoom;
         ctx.stroke();
 
-        // Center dash line
+        // Centerline Dash
         ctx.setLineDash([10 * zoom, 10 * zoom]);
         ctx.beginPath();
         samples.forEach((p, idx) => {
@@ -178,19 +314,26 @@ export const EditorCanvas: React.FC<EditorCanvasProps> = ({
         ctx.setLineDash([]);
 
         // Start / Finish Line Banner
-        const startP = samples[0];
-        if (startP) {
-          const sPos = worldToCanvas(startP.position.x, startP.position.z);
+        const startNodeIdx = track.startIndex || 0;
+        const startNode = track.nodes[startNodeIdx] || track.nodes[0];
+        if (startNode) {
+          const sPos = worldToCanvas(startNode.x, startNode.y);
           ctx.beginPath();
-          ctx.arc(sPos.x, sPos.y, 9, 0, Math.PI * 2);
+          ctx.arc(sPos.x, sPos.y, 11, 0, Math.PI * 2);
           ctx.fillStyle = '#00FF66';
           ctx.fill();
           ctx.strokeStyle = '#FFFFFF';
-          ctx.lineWidth = 2;
+          ctx.lineWidth = 2.5;
           ctx.stroke();
+
+          ctx.fillStyle = '#000000';
+          ctx.font = '900 8px Fira Code, monospace';
+          ctx.textAlign = 'center';
+          ctx.textBaseline = 'middle';
+          ctx.fillText('S/F', sPos.x, sPos.y);
         }
       } else {
-        // Draw Open Spline Curve Line
+        // Open Spline Preview
         ctx.beginPath();
         samples.forEach((p, idx) => {
           const sp = worldToCanvas(p.position.x, p.position.z);
@@ -201,9 +344,9 @@ export const EditorCanvas: React.FC<EditorCanvasProps> = ({
         ctx.lineWidth = 4 * zoom;
         ctx.stroke();
 
-        // Dashed Preview Segment to Cursor from Last Point
+        // Preview Line to cursor in Draw Mode
         const lastNode = track.nodes[track.nodes.length - 1];
-        if (lastNode && !track.isClosed) {
+        if (lastNode && !track.isClosed && activeTool === 'draw') {
           const lastScreen = worldToCanvas(lastNode.x, lastNode.y);
           const cursorScreen = worldToCanvas(mouseWorld.x, mouseWorld.y);
           ctx.setLineDash([6 * zoom, 6 * zoom]);
@@ -218,30 +361,34 @@ export const EditorCanvas: React.FC<EditorCanvasProps> = ({
       }
     }
 
-    // 3. Draw Nodes (Control Points)
+    // 3. Draw Nodes
+    const activeSelectedSet = new Set(selectedNodeIds);
+    if (selectedNodeId) activeSelectedSet.add(selectedNodeId);
+
     track.nodes.forEach((node, idx) => {
       const sp = worldToCanvas(node.x, node.y);
-      const isSelected = node.id === selectedNodeId;
-      const isFirst = idx === 0;
+      const isSelected = activeSelectedSet.has(node.id);
+      const isFirst = idx === (track.startIndex || 0);
+      const isLocked = !!node.locked;
 
-      // Selection Ring
-      if (isSelected || (isFirst && !track.isClosed && track.nodes.length >= 3)) {
+      // Outer Selection Ring
+      if (isSelected || (idx === 0 && !track.isClosed && track.nodes.length >= 3 && activeTool === 'draw')) {
         ctx.beginPath();
-        ctx.arc(sp.x, sp.y, 16, 0, Math.PI * 2);
-        ctx.fillStyle = isFirst ? 'rgba(0, 255, 102, 0.25)' : 'rgba(225, 6, 0, 0.25)';
+        ctx.arc(sp.x, sp.y, 17, 0, Math.PI * 2);
+        ctx.fillStyle = isFirst ? 'rgba(0, 255, 102, 0.25)' : 'rgba(225, 6, 0, 0.35)';
         ctx.fill();
         ctx.strokeStyle = isFirst ? '#00FF66' : '#E10600';
         ctx.lineWidth = 2;
         ctx.stroke();
       }
 
-      // Node Body
+      // Main Node Circle
       ctx.beginPath();
-      ctx.arc(sp.x, sp.y, 8, 0, Math.PI * 2);
-      ctx.fillStyle = isFirst ? '#00FF66' : isSelected ? '#E10600' : '#121721';
+      ctx.arc(sp.x, sp.y, 8.5, 0, Math.PI * 2);
+      ctx.fillStyle = isFirst ? '#00FF66' : isSelected ? '#E10600' : isLocked ? '#2A344A' : '#121721';
       ctx.fill();
-      ctx.strokeStyle = isFirst ? '#00FF66' : '#FFFFFF';
-      ctx.lineWidth = 2;
+      ctx.strokeStyle = isLocked ? '#F59E0B' : (isFirst ? '#00FF66' : '#FFFFFF');
+      ctx.lineWidth = isLocked ? 2.5 : 2;
       ctx.stroke();
 
       // Node Index Label
@@ -250,10 +397,34 @@ export const EditorCanvas: React.FC<EditorCanvasProps> = ({
       ctx.textAlign = 'center';
       ctx.textBaseline = 'middle';
       ctx.fillText((idx + 1).toString(), sp.x, sp.y);
+
+      // Lock Badge Indicator
+      if (isLocked) {
+        ctx.beginPath();
+        ctx.arc(sp.x + 7, sp.y - 7, 3.5, 0, Math.PI * 2);
+        ctx.fillStyle = '#F59E0B';
+        ctx.fill();
+      }
     });
 
-    // 4. Hover Cursor Indicator (Sitting exactly under mouse tip 1:1)
-    if (!track.isClosed && mouseWorld) {
+    // 4. Rubber-band Multi-Selection Box
+    if (isSelectingBox && selectionBoxStart && selectionBoxEnd) {
+      const sx = Math.min(selectionBoxStart.x, selectionBoxEnd.x);
+      const sy = Math.min(selectionBoxStart.y, selectionBoxEnd.y);
+      const sw = Math.abs(selectionBoxEnd.x - selectionBoxStart.x);
+      const sh = Math.abs(selectionBoxEnd.y - selectionBoxStart.y);
+
+      ctx.fillStyle = 'rgba(0, 240, 255, 0.12)';
+      ctx.fillRect(sx, sy, sw, sh);
+      ctx.strokeStyle = '#00F0FF';
+      ctx.lineWidth = 1.5;
+      ctx.setLineDash([4, 4]);
+      ctx.strokeRect(sx, sy, sw, sh);
+      ctx.setLineDash([]);
+    }
+
+    // 5. Tool Cursor Indicator
+    if (!track.isClosed && activeTool === 'draw' && mouseWorld) {
       const hoverPos = worldToCanvas(mouseWorld.x, mouseWorld.y);
       ctx.beginPath();
       ctx.arc(hoverPos.x, hoverPos.y, 5, 0, Math.PI * 2);
@@ -263,13 +434,28 @@ export const EditorCanvas: React.FC<EditorCanvasProps> = ({
       ctx.lineWidth = 1.5;
       ctx.stroke();
     }
+  }, [
+    canvasSize,
+    offset,
+    zoom,
+    track,
+    selectedNodeId,
+    selectedNodeIds,
+    mouseWorld,
+    worldToCanvas,
+    activeTool,
+    snapEnabled,
+    isSelectingBox,
+    selectionBoxStart,
+    selectionBoxEnd
+  ]);
 
-  }, [canvasSize, offset, zoom, track, selectedNodeId, mouseWorld, worldToCanvas]);
-
-  // Mouse Handlers using screenToWorld
+  // Mouse Handlers
   const handleMouseDown = (e: React.MouseEvent<HTMLCanvasElement>) => {
-    // Right / Middle Click -> Pan
-    if (e.button === 1 || e.button === 2) {
+    setContextMenu(null);
+
+    // Pan with Middle Click, Right Drag, or Space+LeftDrag
+    if (e.button === 1 || e.button === 2 || isSpacePressedRef.current || activeTool === 'pan') {
       setIsPanning(true);
       const canvas = canvasRef.current;
       if (!canvas) return;
@@ -283,49 +469,114 @@ export const EditorCanvas: React.FC<EditorCanvasProps> = ({
     }
 
     const clickedWorld = screenToWorld(e.clientX, e.clientY);
-    let foundNode: TrackNode | null = null;
 
+    // Node hit testing
+    let foundNode: TrackNode | null = null;
     for (const node of track.nodes) {
       const dx = node.x - clickedWorld.x;
       const dy = node.y - clickedWorld.y;
-      if (Math.sqrt(dx * dx + dy * dy) <= 18 / zoom) {
+      if (Math.hypot(dx, dy) <= 18 / zoom) {
         foundNode = node;
         break;
       }
     }
 
-    if (foundNode) {
-      // If clicking first node when loop is unclosed & >= 3 nodes -> Close Loop!
-      if (foundNode.id === track.nodes[0]?.id && !track.isClosed && track.nodes.length >= 3) {
-        setTrack(prev => ({ ...prev, isClosed: true }));
+    // Handle ERASE Tool
+    if (activeTool === 'erase') {
+      if (foundNode) {
+        setTrack(prev => ({
+          ...prev,
+          nodes: prev.nodes.filter(n => n.id !== foundNode!.id),
+          isClosed: prev.nodes.length - 1 < 3 ? false : prev.isClosed
+        }), `Erase node ${foundNode.id}`);
         setSelectedNodeId(null);
-      } else {
+        setSelectedNodeIds(prev => prev.filter(id => id !== foundNode!.id));
+      }
+      return;
+    }
+
+    // Handle Node Click
+    if (foundNode) {
+      // Loop closing condition in Draw mode
+      if (activeTool === 'draw' && foundNode.id === track.nodes[0]?.id && !track.isClosed && track.nodes.length >= 3) {
+        onCloseCircuit();
+        setSelectedNodeId(null);
+        setSelectedNodeIds([]);
+        return;
+      }
+
+      // Multi-select with Shift
+      if (e.shiftKey) {
+        setSelectedNodeIds(prev =>
+          prev.includes(foundNode!.id) ? prev.filter(id => id !== foundNode!.id) : [...prev, foundNode!.id]
+        );
         setSelectedNodeId(foundNode.id);
-        setDraggedNodeId(foundNode.id);
+      } else {
+        if (!selectedNodeIds.includes(foundNode.id)) {
+          setSelectedNodeIds([foundNode.id]);
+          setSelectedNodeId(foundNode.id);
+        } else {
+          setSelectedNodeId(foundNode.id);
+        }
+      }
+
+      // Prepare translation for dragged node(s)
+      setDraggedNodeId(foundNode.id);
+      setDragStartWorld(clickedWorld);
+      const initMap = new Map<string, { x: number; y: number }>();
+      const movingNodes = selectedNodeIds.includes(foundNode.id)
+        ? track.nodes.filter(n => selectedNodeIds.includes(n.id))
+        : [foundNode];
+      movingNodes.forEach(n => initMap.set(n.id, { x: n.x, y: n.y }));
+      setDragInitialPositions(initMap);
+      return;
+    }
+
+    // Clicked empty canvas space
+    if (activeTool === 'draw') {
+      if (!track.isClosed) {
+        onAddPoint(clickedWorld, e.shiftKey);
       }
     } else {
-      // Clicked on Empty Space -> Add Control Point!
-      if (!track.isClosed) {
-        onAddPoint(clickedWorld);
-      } else {
+      // Edit mode: Start rubber-band selection box
+      if (!e.shiftKey) {
         setSelectedNodeId(null);
-        setIsPanning(true);
-        const canvas = canvasRef.current;
-        if (!canvas) return;
+        setSelectedNodeIds([]);
+      }
+      const canvas = canvasRef.current;
+      if (canvas) {
         const rect = canvas.getBoundingClientRect();
         const scaleX = canvas.width / (rect.width || 1);
         const scaleY = canvas.height / (rect.height || 1);
-        const canvasX = (e.clientX - rect.left) * scaleX;
-        const canvasY = (e.clientY - rect.top) * scaleY;
-        setPanStart({ x: canvasX - offset.x, y: canvasY - offset.y });
+        const cx = (e.clientX - rect.left) * scaleX;
+        const cy = (e.clientY - rect.top) * scaleY;
+        setIsSelectingBox(true);
+        setSelectionBoxStart({ x: cx, y: cy });
+        setSelectionBoxEnd({ x: cx, y: cy });
       }
     }
   };
 
   const handleMouseMove = (e: React.MouseEvent<HTMLCanvasElement>) => {
-    const currentWorld = screenToWorld(e.clientX, e.clientY);
+    let currentWorld = screenToWorld(e.clientX, e.clientY);
+
+    // Apply Shift 15-degree snapping to cursor relative to last node in Draw Mode
+    if (e.shiftKey && activeTool === 'draw' && track.nodes.length > 0 && !track.isClosed) {
+      const last = track.nodes[track.nodes.length - 1];
+      const dx = currentWorld.x - last.x;
+      const dy = currentWorld.y - last.y;
+      const dist = Math.hypot(dx, dy);
+      const angle = Math.atan2(dy, dx);
+      const snapAngle = Math.round(angle / (Math.PI / 12)) * (Math.PI / 12);
+      currentWorld = {
+        x: last.x + Math.cos(snapAngle) * dist,
+        y: last.y + Math.sin(snapAngle) * dist
+      };
+    }
+
     setMouseWorld(currentWorld);
 
+    // Pan Viewport
     if (isPanning) {
       const canvas = canvasRef.current;
       if (!canvas) return;
@@ -339,27 +590,160 @@ export const EditorCanvas: React.FC<EditorCanvasProps> = ({
       return;
     }
 
-    if (draggedNodeId) {
+    // Drag nodes
+    if (draggedNodeId && dragInitialPositions.size > 0) {
+      const deltaX = currentWorld.x - dragStartWorld.x;
+      const deltaY = currentWorld.y - dragStartWorld.y;
+
       setTrack(prev => ({
         ...prev,
-        nodes: prev.nodes.map(n =>
-          n.id === draggedNodeId
-            ? { ...n, x: Math.round(currentWorld.x), y: Math.round(currentWorld.y) }
-            : n
-        )
+        nodes: prev.nodes.map(n => {
+          if (dragInitialPositions.has(n.id) && !n.locked) {
+            const init = dragInitialPositions.get(n.id)!;
+            let nx = init.x + deltaX;
+            let ny = init.y + deltaY;
+            if (snapEnabled) {
+              nx = Math.round(nx / 5) * 5;
+              ny = Math.round(ny / 5) * 5;
+            }
+            return { ...n, x: Math.round(nx), y: Math.round(ny) };
+          }
+          return n;
+        })
       }));
+      return;
+    }
+
+    // Update Rubber-band selection box
+    if (isSelectingBox && selectionBoxStart) {
+      const canvas = canvasRef.current;
+      if (!canvas) return;
+      const rect = canvas.getBoundingClientRect();
+      const scaleX = canvas.width / (rect.width || 1);
+      const scaleY = canvas.height / (rect.height || 1);
+      const cx = (e.clientX - rect.left) * scaleX;
+      const cy = (e.clientY - rect.top) * scaleY;
+      setSelectionBoxEnd({ x: cx, y: cy });
+
+      // Calculate enclosed nodes
+      const wStart = screenToWorld(selectionBoxStart.x / scaleX + rect.left, selectionBoxStart.y / scaleY + rect.top);
+      const minX = Math.min(wStart.x, currentWorld.x);
+      const maxX = Math.max(wStart.x, currentWorld.x);
+      const minY = Math.min(wStart.y, currentWorld.y);
+      const maxY = Math.max(wStart.y, currentWorld.y);
+
+      const enclosedIds = track.nodes
+        .filter(n => n.x >= minX && n.x <= maxX && n.y >= minY && n.y <= maxY)
+        .map(n => n.id);
+
+      setSelectedNodeIds(enclosedIds);
+      if (enclosedIds.length === 1) setSelectedNodeId(enclosedIds[0]);
     }
   };
 
   const handleMouseUp = () => {
-    setIsPanning(false);
-    setDraggedNodeId(null);
+    if (isPanning) setIsPanning(false);
+
+    if (draggedNodeId) {
+      setDraggedNodeId(null);
+      setDragInitialPositions(new Map());
+      setTrack(prev => prev, 'Move node(s)');
+    }
+
+    if (isSelectingBox) {
+      setIsSelectingBox(false);
+      setSelectionBoxStart(null);
+      setSelectionBoxEnd(null);
+    }
+  };
+
+  // Double Click: Insert Node into Track Edge
+  const handleDoubleClick = (e: React.MouseEvent<HTMLCanvasElement>) => {
+    const clickedWorld = screenToWorld(e.clientX, e.clientY);
+    if (track.nodes.length < 2) return;
+
+    // Build curve and sample points to find nearest segment
+    const curve = buildTrackCurve(track.nodes, track.isClosed);
+    const samples = sampleSplinePoints(curve, track.nodes, 350);
+    const { point, distance } = getNearestSplinePoint({ x: clickedWorld.x, y: 0, z: clickedWorld.y }, samples);
+
+    const hitThreshold = (track.defaultWidth / 2 + 10);
+    if (point && distance <= hitThreshold) {
+      // Find between which two nodes this spline point lies
+      let bestSegment = 0;
+      let minSegDistSq = Infinity;
+      const n = track.nodes.length;
+      const maxIter = track.isClosed ? n : n - 1;
+
+      for (let i = 0; i < maxIter; i++) {
+        const n1 = track.nodes[i];
+        const n2 = track.nodes[(i + 1) % n];
+
+        const segX = n2.x - n1.x;
+        const segY = n2.y - n1.y;
+        const segLenSq = segX * segX + segY * segY;
+        if (segLenSq === 0) continue;
+
+        let t = ((clickedWorld.x - n1.x) * segX + (clickedWorld.y - n1.y) * segY) / segLenSq;
+        t = Math.max(0, Math.min(1, t));
+        const px = n1.x + t * segX;
+        const py = n1.y + t * segY;
+        const dSq = (clickedWorld.x - px) ** 2 + (clickedWorld.y - py) ** 2;
+
+        if (dSq < minSegDistSq) {
+          minSegDistSq = dSq;
+          bestSegment = i;
+        }
+      }
+
+      const newNode: TrackNode = {
+        id: Date.now().toString(),
+        x: Math.round(clickedWorld.x),
+        y: Math.round(clickedWorld.y),
+        elevation: 0,
+        width: track.defaultWidth
+      };
+
+      const newNodes = [...track.nodes];
+      newNodes.splice(bestSegment + 1, 0, newNode);
+
+      setTrack(prev => ({
+        ...prev,
+        nodes: newNodes
+      }), `Insert node between ${bestSegment + 1} and ${bestSegment + 2}`);
+      setSelectedNodeId(newNode.id);
+      setSelectedNodeIds([newNode.id]);
+    }
+  };
+
+  // Right Click Context Menu: Quick Actions (Delete, Lock, Set Start/Finish)
+  const handleContextMenu = (e: React.MouseEvent<HTMLCanvasElement>) => {
+    e.preventDefault();
+    const clickedWorld = screenToWorld(e.clientX, e.clientY);
+
+    let foundNode: TrackNode | null = null;
+    for (const node of track.nodes) {
+      const dx = node.x - clickedWorld.x;
+      const dy = node.y - clickedWorld.y;
+      if (Math.hypot(dx, dy) <= 20 / zoom) {
+        foundNode = node;
+        break;
+      }
+    }
+
+    if (foundNode) {
+      setSelectedNodeId(foundNode.id);
+      if (!selectedNodeIds.includes(foundNode.id)) {
+        setSelectedNodeIds([foundNode.id]);
+      }
+      setContextMenu({ x: e.clientX, y: e.clientY, nodeId: foundNode.id });
+    }
   };
 
   const handleWheel = (e: React.WheelEvent<HTMLCanvasElement>) => {
     e.preventDefault();
-    const factor = e.deltaY < 0 ? 1.1 : 0.9;
-    setZoom(prev => Math.max(0.3, Math.min(2.5, prev * factor)));
+    const factor = e.deltaY < 0 ? 1.12 : 0.88;
+    setZoom(prev => Math.max(0.15, Math.min(3.5, prev * factor)));
   };
 
   return (
@@ -371,10 +755,60 @@ export const EditorCanvas: React.FC<EditorCanvasProps> = ({
         onMouseDown={handleMouseDown}
         onMouseMove={handleMouseMove}
         onMouseUp={handleMouseUp}
+        onDoubleClick={handleDoubleClick}
+        onContextMenu={handleContextMenu}
         onWheel={handleWheel}
-        onContextMenu={(e) => e.preventDefault()}
-        className="cursor-crosshair w-full h-full block"
+        className={`w-full h-full block ${activeTool === 'pan' ? 'cursor-grab' : activeTool === 'erase' ? 'cursor-not-allowed' : 'cursor-crosshair'}`}
       />
+
+      {/* Context Menu Modal on Right Click */}
+      {contextMenu && (
+        <div
+          style={{ top: contextMenu.y - 64, left: contextMenu.x }}
+          className="absolute z-50 bg-[#161D2B] border border-[#243046] rounded-xl shadow-2xl py-1 w-48 text-xs font-mono text-slate-200"
+        >
+          <button
+            onClick={() => {
+              onMoveStartLine(contextMenu.nodeId);
+              setContextMenu(null);
+            }}
+            className="w-full text-left px-3 py-2 hover:bg-emerald-950/80 hover:text-emerald-400 transition-colors flex items-center justify-between"
+          >
+            <span>Set Start/Finish</span>
+            <span className="text-[10px] text-emerald-500 font-bold">S/F</span>
+          </button>
+          <button
+            onClick={() => {
+              setTrack(prev => ({
+                ...prev,
+                nodes: prev.nodes.map(n => n.id === contextMenu.nodeId ? { ...n, locked: !n.locked } : n)
+              }), `Toggle lock on node`);
+              setContextMenu(null);
+            }}
+            className="w-full text-left px-3 py-2 hover:bg-amber-950/80 hover:text-amber-400 transition-colors flex items-center justify-between"
+          >
+            <span>Toggle Lock</span>
+            <span className="text-[10px] text-amber-500 font-bold">Lock</span>
+          </button>
+          <div className="h-px bg-[#243046] my-1" />
+          <button
+            onClick={() => {
+              setTrack(prev => ({
+                ...prev,
+                nodes: prev.nodes.filter(n => n.id !== contextMenu.nodeId),
+                isClosed: prev.nodes.length - 1 < 3 ? false : prev.isClosed
+              }), `Delete node`);
+              setSelectedNodeId(null);
+              setSelectedNodeIds(prev => prev.filter(id => id !== contextMenu.nodeId));
+              setContextMenu(null);
+            }}
+            className="w-full text-left px-3 py-2 text-red-400 hover:bg-red-950/80 hover:text-red-300 transition-colors flex items-center justify-between"
+          >
+            <span>Delete Point</span>
+            <span className="text-[10px] text-red-500 font-bold">Del</span>
+          </button>
+        </div>
+      )}
 
       {/* Empty State Prompt */}
       {track.nodes.length === 0 && (
@@ -385,25 +819,28 @@ export const EditorCanvas: React.FC<EditorCanvasProps> = ({
             </div>
             <div className="space-y-1">
               <h2 className="text-base font-extrabold text-white uppercase tracking-wider">
-                TRACK DESIGNER
+                TRACK SHAPE STUDIO
               </h2>
               <p className="text-xs text-slate-400 font-mono">
-                Click anywhere on the canvas to place your first control point.
+                Click anywhere to place control points, or press <span className="text-white font-bold">P</span> for Draw, <span className="text-white font-bold">E</span> for Edit.
               </p>
             </div>
           </div>
         </div>
       )}
 
-      {/* Controls Legend Overlay */}
-      <div className="absolute top-4 left-4 bg-[#121721]/90 backdrop-blur-md border border-[#1E2638] rounded-xl p-3 text-xs text-slate-300 font-mono flex flex-col gap-1 shadow-lg pointer-events-none">
-        <div className="text-[11px] font-bold text-slate-400 uppercase tracking-wider mb-1">
-          EDITOR CONTROLS
-        </div>
-        <p>• <span className="text-white">Click Canvas:</span> Place Track Point</p>
-        <p>• <span className="text-white">Drag Point:</span> Move Point</p>
-        <p>• <span className="text-white">Click Point 1:</span> Close Circuit Loop</p>
-        <p>• <span className="text-white">Right Drag:</span> Pan Canvas View</p>
+      {/* Editor Status Bar */}
+      <div className="absolute bottom-4 left-4 bg-[#121721]/90 backdrop-blur-md border border-[#1E2638] rounded-xl px-3 py-2 text-xs text-slate-300 font-mono flex items-center gap-4 shadow-lg pointer-events-none">
+        <span className="flex items-center gap-1.5">
+          <span className="w-2 h-2 rounded-full bg-cyan-400 animate-pulse" />
+          TOOL: <strong className="text-white uppercase">{activeTool}</strong>
+        </span>
+        <span>•</span>
+        <span>SNAP: <strong className={snapEnabled ? 'text-cyan-400' : 'text-slate-500'}>{snapEnabled ? 'ON (20m)' : 'OFF'}</strong></span>
+        <span>•</span>
+        <span>SELECTED: <strong className="text-white">{selectedNodeIds.length > 0 ? `${selectedNodeIds.length} nodes` : (selectedNodeId ? '1 node' : 'None')}</strong></span>
+        <span>•</span>
+        <span>ZOOM: <strong className="text-white">{Math.round(zoom * 100)}%</strong></span>
       </div>
     </div>
   );

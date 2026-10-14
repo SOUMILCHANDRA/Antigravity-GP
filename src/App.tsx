@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react';
-import { AppMode, CarState, LapTelemetry, TrackConfig, TrackNode, AICompetitorState, RaceBattleState, AIDifficulty } from './types/track';
+import { AppMode, CarState, LapTelemetry, TrackConfig, TrackNode, AICompetitorState, RaceBattleState, AIDifficulty, EditorTool } from './types/track';
 import { EMPTY_TRACK } from './utils/presets';
 import { buildTrackCurve, sampleSplinePoints, getNearestSplinePoint, checkFinishLineCrossing } from './utils/spline';
 import { createInitialCarState, updateCarPhysics, resetVehicle } from './utils/physics';
@@ -12,6 +12,7 @@ import { CAR_PRESETS, DEFAULT_PLAYER_CAR_ID, DEFAULT_AI_CAR_ID } from './utils/c
 import { Header } from './components/Header';
 import { EditorCanvas } from './components/TrackEditor/EditorCanvas';
 import { EditorToolbar } from './components/TrackEditor/EditorToolbar';
+import { HistoryPanel } from './components/TrackEditor/HistoryPanel';
 
 import { RaceCanvas } from './components/Race3D/RaceCanvas';
 import { RaceHUD } from './components/UI/RaceHUD';
@@ -24,6 +25,10 @@ export function App() {
   const [mode, setMode] = useState<AppMode>('builder');
   const [track, setTrack] = useState<TrackConfig>(EMPTY_TRACK);
   const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null);
+  const [selectedNodeIds, setSelectedNodeIds] = useState<string[]>([]);
+  const [activeTool, setActiveTool] = useState<EditorTool>('draw');
+  const [snapEnabled, setSnapEnabled] = useState<boolean>(false);
+  const [isHistoryPanelOpen, setIsHistoryPanelOpen] = useState<boolean>(false);
   const [showRacingLine, setShowRacingLine] = useState<boolean>(true);
 
   // Vehicle Selection Garage State
@@ -96,10 +101,13 @@ export function App() {
     keysRef.current = {};
   }, []);
 
-  const updateTrackState = (updater: TrackConfig | ((prev: TrackConfig) => TrackConfig)) => {
+  const updateTrackState = (
+    updater: TrackConfig | ((prev: TrackConfig) => TrackConfig),
+    actionDescription: string = 'Edit Track'
+  ) => {
     setTrack(prev => {
       const next = typeof updater === 'function' ? updater(prev) : updater;
-      historyRef.current.pushState(next);
+      historyRef.current.pushState(next, actionDescription);
       setCanUndo(historyRef.current.canUndo());
       setCanRedo(historyRef.current.canRedo());
       return next;
@@ -111,6 +119,7 @@ export function App() {
     if (prev) {
       setTrack(prev);
       setSelectedNodeId(null);
+      setSelectedNodeIds([]);
       setCanUndo(historyRef.current.canUndo());
       setCanRedo(historyRef.current.canRedo());
     }
@@ -121,6 +130,18 @@ export function App() {
     if (next) {
       setTrack(next);
       setSelectedNodeId(null);
+      setSelectedNodeIds([]);
+      setCanUndo(historyRef.current.canUndo());
+      setCanRedo(historyRef.current.canRedo());
+    }
+  };
+
+  const handleJumpToHistory = (index: number) => {
+    const target = historyRef.current.jumpToPast(index);
+    if (target) {
+      setTrack(target);
+      setSelectedNodeId(null);
+      setSelectedNodeIds([]);
       setCanUndo(historyRef.current.canUndo());
       setCanRedo(historyRef.current.canRedo());
     }
@@ -130,8 +151,9 @@ export function App() {
     updateTrackState({
       ...EMPTY_TRACK,
       id: `user-circuit-${Date.now()}`
-    });
+    }, 'Clear Track');
     setSelectedNodeId(null);
+    setSelectedNodeIds([]);
   };
 
   const splinePoints = useMemo(() => {
@@ -148,11 +170,31 @@ export function App() {
     return splinePoints[splinePoints.length - 1].distance;
   }, [splinePoints]);
 
-  const handleAddPoint = (worldPos: { x: number; y: number }) => {
+  const handleAddPoint = (worldPos: { x: number; y: number }, snap15Deg: boolean = false) => {
+    let finalPos = { ...worldPos };
+
+    if (snap15Deg && track.nodes.length > 0) {
+      const last = track.nodes[track.nodes.length - 1];
+      const dx = worldPos.x - last.x;
+      const dy = worldPos.y - last.y;
+      const dist = Math.hypot(dx, dy);
+      const angle = Math.atan2(dy, dx);
+      const snapAngle = Math.round(angle / (Math.PI / 12)) * (Math.PI / 12);
+      finalPos = {
+        x: Math.round(last.x + Math.cos(snapAngle) * dist),
+        y: Math.round(last.y + Math.sin(snapAngle) * dist)
+      };
+    } else if (snapEnabled) {
+      finalPos = {
+        x: Math.round(finalPos.x / 20) * 20,
+        y: Math.round(finalPos.y / 20) * 20
+      };
+    }
+
     const newNode: TrackNode = {
       id: Date.now().toString(),
-      x: Math.round(worldPos.x),
-      y: Math.round(worldPos.y),
+      x: Math.round(finalPos.x),
+      y: Math.round(finalPos.y),
       elevation: 0,
       width: track.defaultWidth
     };
@@ -160,8 +202,26 @@ export function App() {
     updateTrackState(prev => ({
       ...prev,
       nodes: [...prev.nodes, newNode]
-    }));
+    }), `Add Point ${track.nodes.length + 1}`);
     setSelectedNodeId(newNode.id);
+    setSelectedNodeIds([newNode.id]);
+  };
+
+  const handleMoveStartLine = (nodeId: string) => {
+    const nodeIdx = track.nodes.findIndex(n => n.id === nodeId);
+    if (nodeIdx === -1) return;
+
+    // Shift node order seamlessly so the selected node becomes index 0
+    const reordered = [
+      ...track.nodes.slice(nodeIdx),
+      ...track.nodes.slice(0, nodeIdx)
+    ];
+
+    updateTrackState(prev => ({
+      ...prev,
+      nodes: reordered,
+      startIndex: 0
+    }), `Move Start/Finish to Node ${nodeIdx + 1}`);
   };
 
   // Authoritative Car & AI Spawn & Reset
@@ -546,13 +606,22 @@ export function App() {
               setTrack={updateTrackState}
               selectedNodeId={selectedNodeId}
               setSelectedNodeId={setSelectedNodeId}
+              selectedNodeIds={selectedNodeIds}
+              setSelectedNodeIds={setSelectedNodeIds}
+              activeTool={activeTool}
+              setActiveTool={setActiveTool}
+              snapEnabled={snapEnabled}
               onAddPoint={handleAddPoint}
+              onCloseCircuit={() => updateTrackState(prev => ({ ...prev, isClosed: true }), 'Close Circuit')}
+              onMoveStartLine={handleMoveStartLine}
             />
             <EditorToolbar
               track={track}
               setTrack={updateTrackState}
               selectedNodeId={selectedNodeId}
               setSelectedNodeId={setSelectedNodeId}
+              selectedNodeIds={selectedNodeIds}
+              setSelectedNodeIds={setSelectedNodeIds}
               circuitLength={circuitLength}
               canUndo={canUndo}
               canRedo={canRedo}
@@ -563,6 +632,29 @@ export function App() {
                 clearAllInputs();
                 setMode('race');
               }}
+              activeTool={activeTool}
+              setActiveTool={setActiveTool}
+              snapEnabled={snapEnabled}
+              onToggleSnap={() => setSnapEnabled(prev => !prev)}
+              onZoomFit={() => {
+                // Trigger zoom to fit via F key event simulation or internal callback
+                window.dispatchEvent(new KeyboardEvent('keydown', { code: 'KeyF' }));
+              }}
+              onToggleHistoryPanel={() => setIsHistoryPanelOpen(prev => !prev)}
+              isHistoryPanelOpen={isHistoryPanelOpen}
+              onMoveStartLine={handleMoveStartLine}
+            />
+
+            {/* Visual History Panel */}
+            <HistoryPanel
+              isOpen={isHistoryPanelOpen}
+              onClose={() => setIsHistoryPanelOpen(false)}
+              entries={historyRef.current.getEntries()}
+              onJumpToPast={handleJumpToHistory}
+              onUndo={handleUndo}
+              onRedo={handleRedo}
+              canUndo={canUndo}
+              canRedo={canRedo}
             />
           </div>
         ) : (
