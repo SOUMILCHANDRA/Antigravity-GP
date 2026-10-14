@@ -16,7 +16,9 @@ import {
   Flag,
   Maximize2,
   Magnet,
-  History
+  History,
+  Sparkles,
+  Image as ImageIcon
 } from 'lucide-react';
 import { TrackConfig, EditorTool } from '../../types/track';
 import { estimateLapTime } from '../../utils/spline';
@@ -45,6 +47,9 @@ interface EditorToolbarProps {
   isHistoryPanelOpen: boolean;
   onMoveStartLine: (nodeId: string) => void;
   stats?: TrackStats;
+  onOpenPresets?: () => void;
+  onToggleUnderlay?: () => void;
+  isUnderlayOpen?: boolean;
 }
 
 export const EditorToolbar: React.FC<EditorToolbarProps> = ({
@@ -69,7 +74,10 @@ export const EditorToolbar: React.FC<EditorToolbarProps> = ({
   onToggleHistoryPanel,
   isHistoryPanelOpen,
   onMoveStartLine,
-  stats
+  stats,
+  onOpenPresets,
+  onToggleUnderlay,
+  isUnderlayOpen = false
 }) => {
   const isValidTrack = track.isClosed && track.nodes.length >= 3;
   const canCloseCircuit = !track.isClosed && track.nodes.length >= 3;
@@ -153,6 +161,37 @@ export const EditorToolbar: React.FC<EditorToolbarProps> = ({
             <span>CLOSE CIRCUIT LOOP</span>
           </button>
         )}
+
+        {/* Section 0: Templates & Map Tracing */}
+        <div className="bg-[#121721] p-3 rounded-xl border border-[#1E2638] space-y-2">
+          <div className="flex items-center justify-between text-[11px] font-bold uppercase tracking-wider text-slate-400">
+            <span>TEMPLATES & MAP TRACING</span>
+          </div>
+
+          <div className="grid grid-cols-2 gap-1.5 text-xs font-mono">
+            <button
+              onClick={onOpenPresets}
+              className="py-2 px-2.5 rounded-lg bg-cyan-950/70 hover:bg-cyan-900 border border-cyan-700/80 text-cyan-300 font-bold flex items-center justify-center gap-1.5 transition-colors shadow-sm"
+              title="Load Pre-built Circuit Archetypes"
+            >
+              <Sparkles className="w-3.5 h-3.5 text-cyan-400" />
+              <span>PRESETS</span>
+            </button>
+
+            <button
+              onClick={onToggleUnderlay}
+              className={`py-2 px-2.5 rounded-lg border font-bold flex items-center justify-center gap-1.5 transition-colors ${
+                isUnderlayOpen || track.underlay
+                  ? 'bg-purple-950/80 border-purple-600 text-purple-300'
+                  : 'bg-[#18202F] border-[#243046] text-slate-300 hover:text-slate-100 hover:bg-slate-800'
+              }`}
+              title="Upload & Trace Real Satellite Imagery"
+            >
+              <ImageIcon className="w-3.5 h-3.5 text-purple-400" />
+              <span>UNDERLAY</span>
+            </button>
+          </div>
+        </div>
 
         {/* Section 1: Studio Tool Palette (Draw, Edit, Erase, Pan) */}
         <div className="bg-[#121721] p-3 rounded-xl border border-[#1E2638] space-y-2">

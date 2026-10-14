@@ -19,6 +19,9 @@ interface EditorCanvasProps {
   onMoveStartLine: (nodeId: string) => void;
   onZoomFitRequest?: () => void;
   corners?: CornerInfo[];
+  isCalibrating?: boolean;
+  calibrationPoints?: [{ x: number; y: number } | null, { x: number; y: number } | null];
+  onCalibrationClick?: (pos: { x: number; y: number }) => void;
 }
 
 export const EditorCanvas: React.FC<EditorCanvasProps> = ({
@@ -34,7 +37,10 @@ export const EditorCanvas: React.FC<EditorCanvasProps> = ({
   onAddPoint,
   onCloseCircuit,
   onMoveStartLine,
-  corners = []
+  corners = [],
+  isCalibrating = false,
+  calibrationPoints = [null, null],
+  onCalibrationClick
 }) => {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
 
@@ -60,6 +66,24 @@ export const EditorCanvas: React.FC<EditorCanvasProps> = ({
 
   // Context menu position
   const [contextMenu, setContextMenu] = useState<{ x: number; y: number; nodeId: string } | null>(null);
+
+  // Map underlay image element cache
+  const underlayImgRef = useRef<HTMLImageElement | null>(null);
+  const [, setUnderlayLoadedTick] = useState<number>(0);
+
+  useEffect(() => {
+    if (!track.underlay?.imageUrl) {
+      underlayImgRef.current = null;
+      return;
+    }
+    const img = new Image();
+    img.crossOrigin = 'anonymous';
+    img.onload = () => {
+      underlayImgRef.current = img;
+      setUnderlayLoadedTick(prev => prev + 1);
+    };
+    img.src = track.underlay.imageUrl;
+  }, [track.underlay?.imageUrl]);
 
   // Canvas dimensions
   const [canvasSize, setCanvasSize] = useState<{ width: number; height: number }>({
@@ -260,6 +284,23 @@ export const EditorCanvas: React.FC<EditorCanvasProps> = ({
     ctx.moveTo(origin.x, 0);
     ctx.lineTo(origin.x, canvas.height);
     ctx.stroke();
+
+    // 1.5 Map Tracing Underlay Image
+    if (track.underlay?.visible && underlayImgRef.current) {
+      const img = underlayImgRef.current;
+      const center = worldToCanvas(track.underlay.x || 0, track.underlay.y || 0);
+      const scale = (track.underlay.scale || 1.0) * zoom;
+      const rotRad = ((track.underlay.rotation || 0) * Math.PI) / 180;
+      const w = img.width * scale;
+      const h = img.height * scale;
+
+      ctx.save();
+      ctx.globalAlpha = Math.max(0.05, Math.min(1.0, track.underlay.opacity ?? 0.5));
+      ctx.translate(center.x, center.y);
+      ctx.rotate(rotRad);
+      ctx.drawImage(img, -w / 2, -h / 2, w, h);
+      ctx.restore();
+    }
 
     // 2. Track Rendering
     if (track.nodes.length >= 2) {
@@ -509,6 +550,38 @@ export const EditorCanvas: React.FC<EditorCanvasProps> = ({
       ctx.lineWidth = 1.5;
       ctx.stroke();
     }
+
+    // 6. Metric Calibration Pins & Line
+    if (calibrationPoints && calibrationPoints[0]) {
+      const p1 = worldToCanvas(calibrationPoints[0].x, calibrationPoints[0].y);
+      ctx.beginPath();
+      ctx.arc(p1.x, p1.y, 7, 0, Math.PI * 2);
+      ctx.fillStyle = '#00F0FF';
+      ctx.fill();
+      ctx.strokeStyle = '#FFFFFF';
+      ctx.lineWidth = 2;
+      ctx.stroke();
+
+      if (calibrationPoints[1]) {
+        const p2 = worldToCanvas(calibrationPoints[1].x, calibrationPoints[1].y);
+        ctx.beginPath();
+        ctx.arc(p2.x, p2.y, 7, 0, Math.PI * 2);
+        ctx.fillStyle = '#10B981';
+        ctx.fill();
+        ctx.strokeStyle = '#FFFFFF';
+        ctx.lineWidth = 2;
+        ctx.stroke();
+
+        ctx.setLineDash([6, 6]);
+        ctx.beginPath();
+        ctx.moveTo(p1.x, p1.y);
+        ctx.lineTo(p2.x, p2.y);
+        ctx.strokeStyle = '#00F0FF';
+        ctx.lineWidth = 2.5;
+        ctx.stroke();
+        ctx.setLineDash([]);
+      }
+    }
   }, [
     canvasSize,
     offset,
@@ -523,7 +596,8 @@ export const EditorCanvas: React.FC<EditorCanvasProps> = ({
     isSelectingBox,
     selectionBoxStart,
     selectionBoxEnd,
-    corners
+    corners,
+    calibrationPoints
   ]);
 
   // Mouse Handlers
@@ -545,6 +619,12 @@ export const EditorCanvas: React.FC<EditorCanvasProps> = ({
     }
 
     const clickedWorld = screenToWorld(e.clientX, e.clientY);
+
+    // If 2-Point Metric Scale Calibration is active, intercept clicks
+    if (isCalibrating && onCalibrationClick) {
+      onCalibrationClick(clickedWorld);
+      return;
+    }
 
     // Node hit testing
     let foundNode: TrackNode | null = null;

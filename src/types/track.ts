@@ -21,6 +21,52 @@ export interface TrackNode {
   cornerName?: string; // e.g. "T1", "Parabolica"
 }
 
+export interface MapUnderlayConfig {
+  imageUrl: string;
+  opacity: number;       // 0 to 1
+  visible: boolean;
+  locked: boolean;
+  x: number;             // world X
+  y: number;             // world Z (2D Y)
+  scale: number;         // meters per pixel or scale multiplier
+  rotation: number;      // degrees
+  calibrationPoints?: [Vector2D, Vector2D];
+  calibrationDistanceMeters?: number;
+}
+
+export interface VenueFacility {
+  id: string;
+  type: 'grandstand' | 'pit_building' | 'paddock' | 'gantry' | 'marshal_post' | 'tv_camera' | 'tire_barrier' | 'armco' | 'tree' | 'sponsor_board';
+  position: Vector3D;
+  rotation: Vector3D;
+  scale: Vector3D;
+  splineT?: number;
+  side?: 'left' | 'right' | 'free';
+  seats?: number;
+  label?: string;
+}
+
+export interface PitLaneConfig {
+  enabled: boolean;
+  entryT: number;          // spline t where pit lane diverges
+  exitT: number;           // spline t where pit lane merges back
+  speedLimitKmh: number;   // default: 80 km/h
+  pitBoxes: number;        // number of stalls
+  side: 'left' | 'right';
+  width: number;           // pit road width (default: 8m)
+}
+
+export type CurbStyle = 'red_white' | 'blue_yellow' | 'green_white' | 'monza_black_yellow' | 'flat_kerb';
+export type AsphaltStyle = 'modern_f1' | 'classic_weathered' | 'street_concrete' | 'night_circuit';
+export type RunoffStyle = 'gravel_trap' | 'asphalt_stripes' | 'grass_verge';
+
+export interface TrackDressingConfig {
+  curbStyle: CurbStyle;
+  asphaltStyle: AsphaltStyle;
+  runoffStyle: RunoffStyle;
+  sponsorName?: string;
+}
+
 export interface TrackConfig {
   id: string;
   name: string;
@@ -30,6 +76,11 @@ export interface TrackConfig {
   asphaltColor: string;
   version?: number;
   startIndex?: number; // node index designating start/finish line (default 0)
+  crossingType?: 'flat' | 'bridge' | 'tunnel';
+  facilities?: VenueFacility[];
+  pitLane?: PitLaneConfig;
+  dressing?: TrackDressingConfig;
+  underlay?: MapUnderlayConfig;
 }
 
 export type EditorTool = 'draw' | 'edit' | 'erase' | 'pan';

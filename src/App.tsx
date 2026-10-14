@@ -16,6 +16,8 @@ import { EditorToolbar } from './components/TrackEditor/EditorToolbar';
 import { HistoryPanel } from './components/TrackEditor/HistoryPanel';
 import { PointInspector } from './components/TrackEditor/PointInspector';
 import { TrackStatsPanel } from './components/TrackEditor/TrackStatsPanel';
+import { PresetModal } from './components/TrackEditor/PresetModal';
+import { MapUnderlayPanel } from './components/TrackEditor/MapUnderlayPanel';
 
 import { RaceCanvas } from './components/Race3D/RaceCanvas';
 import { RaceHUD } from './components/UI/RaceHUD';
@@ -33,6 +35,12 @@ export function App() {
   const [snapEnabled, setSnapEnabled] = useState<boolean>(false);
   const [isHistoryPanelOpen, setIsHistoryPanelOpen] = useState<boolean>(false);
   const [showRacingLine, setShowRacingLine] = useState<boolean>(true);
+
+  // Template Presets & Map Tracing State
+  const [showPresetsModal, setShowPresetsModal] = useState<boolean>(false);
+  const [showUnderlayPanel, setShowUnderlayPanel] = useState<boolean>(false);
+  const [isCalibrating, setIsCalibrating] = useState<boolean>(false);
+  const [calibrationPoints, setCalibrationPoints] = useState<[{ x: number; y: number } | null, { x: number; y: number } | null]>([null, null]);
 
   // Vehicle Selection Garage State
   const [playerCarId, setPlayerCarId] = useState<string>(DEFAULT_PLAYER_CAR_ID);
@@ -233,6 +241,53 @@ export function App() {
       nodes: reordered,
       startIndex: 0
     }), `Move Start/Finish to Node ${nodeIdx + 1}`);
+  };
+
+  const handleSelectPreset = (preset: TrackConfig) => {
+    updateTrackState({
+      ...preset,
+      id: `user-circuit-${Date.now()}`
+    }, `Load ${preset.name}`);
+    setSelectedNodeId(null);
+    setSelectedNodeIds([]);
+    setTimeout(() => {
+      window.dispatchEvent(new KeyboardEvent('keydown', { code: 'KeyF' }));
+    }, 50);
+  };
+
+  const handleCalibrationClick = (pos: { x: number; y: number }) => {
+    if (!calibrationPoints[0]) {
+      setCalibrationPoints([pos, null]);
+    } else if (!calibrationPoints[1]) {
+      setCalibrationPoints([calibrationPoints[0], pos]);
+    }
+  };
+
+  const handleResetCalibration = () => {
+    setCalibrationPoints([null, null]);
+  };
+
+  const handleApplyCalibrationDistance = (knownMeters: number) => {
+    const p1 = calibrationPoints[0];
+    const p2 = calibrationPoints[1];
+    if (!p1 || !p2 || !track.underlay) return;
+
+    const pixelDist = Math.hypot(p2.x - p1.x, p2.y - p1.y);
+    if (pixelDist <= 0) return;
+
+    const currentScale = track.underlay.scale || 1.0;
+    const targetScale = currentScale * (knownMeters / pixelDist);
+
+    updateTrackState(prev => ({
+      ...prev,
+      underlay: {
+        ...prev.underlay!,
+        scale: Math.max(0.05, Math.min(25.0, targetScale)),
+        calibrationPoints: [p1, p2],
+        calibrationDistanceMeters: knownMeters
+      }
+    }), `Calibrate map scale to ${knownMeters}m`);
+    setCalibrationPoints([null, null]);
   };
 
   // Authoritative Car & AI Spawn & Reset
@@ -626,6 +681,9 @@ export function App() {
               onCloseCircuit={() => updateTrackState(prev => ({ ...prev, isClosed: true }), 'Close Circuit')}
               onMoveStartLine={handleMoveStartLine}
               corners={trackStats.corners}
+              isCalibrating={isCalibrating}
+              calibrationPoints={calibrationPoints}
+              onCalibrationClick={handleCalibrationClick}
             />
 
             {/* Stage 2 Point Inspector (Per-point elevation, width, banking, runoff, naming) */}
@@ -648,6 +706,19 @@ export function App() {
                 setSelectedNodeId(nodeId);
                 setSelectedNodeIds([nodeId]);
               }}
+            />
+
+            {/* Stage 3 Map Tracing Underlay Panel */}
+            <MapUnderlayPanel
+              isOpen={showUnderlayPanel}
+              onClose={() => setShowUnderlayPanel(false)}
+              track={track}
+              setTrack={updateTrackState}
+              isCalibrating={isCalibrating}
+              setIsCalibrating={setIsCalibrating}
+              calibrationPoints={calibrationPoints}
+              onResetCalibration={handleResetCalibration}
+              onApplyCalibrationDistance={handleApplyCalibrationDistance}
             />
 
             <EditorToolbar
@@ -679,6 +750,9 @@ export function App() {
               isHistoryPanelOpen={isHistoryPanelOpen}
               onMoveStartLine={handleMoveStartLine}
               stats={trackStats}
+              onOpenPresets={() => setShowPresetsModal(true)}
+              onToggleUnderlay={() => setShowUnderlayPanel(prev => !prev)}
+              isUnderlayOpen={showUnderlayPanel}
             />
 
             {/* Visual History Panel */}
@@ -691,6 +765,13 @@ export function App() {
               onRedo={handleRedo}
               canUndo={canUndo}
               canRedo={canRedo}
+            />
+
+            {/* Stage 3 Circuit Architecture Presets Modal */}
+            <PresetModal
+              isOpen={showPresetsModal}
+              onClose={() => setShowPresetsModal(false)}
+              onSelectPreset={handleSelectPreset}
             />
           </div>
         ) : (
