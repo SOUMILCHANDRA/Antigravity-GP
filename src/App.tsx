@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react';
-import { AppMode, CarState, LapTelemetry, TrackConfig, TrackNode, AICompetitorState, RaceBattleState, AIDifficulty, EditorTool, StudioStage } from './types/track';
+import { AppMode, CarState, LapTelemetry, TrackConfig, TrackNode, AICompetitorState, RaceBattleState, AIDifficulty, EditorTool, StudioStage, EditorViewMode } from './types/track';
 import { EMPTY_TRACK } from './utils/presets';
 import { buildTrackCurve, sampleSplinePoints, getNearestSplinePoint, checkFinishLineCrossing } from './utils/spline';
 import { createInitialCarState, updateCarPhysics, resetVehicle } from './utils/physics';
@@ -24,11 +24,13 @@ import { ShowStagePanel } from './components/TrackEditor/ShowStagePanel';
 import { RaceCanvas } from './components/Race3D/RaceCanvas';
 import { FlythroughViewer } from './components/Race3D/FlythroughViewer';
 import { FlythroughCameraMode } from './components/Race3D/FlythroughCamera';
+import { StudioOrbitViewer } from './components/Race3D/StudioOrbitViewer';
 import { RaceHUD } from './components/UI/RaceHUD';
 import { formatTime } from './utils/time';
 import { Minimap } from './components/UI/Minimap';
 import { LapResultModal } from './components/UI/LapResultModal';
 import { CarSelectModal } from './components/UI/CarSelectModal';
+import { KeyboardShortcutsModal } from './components/UI/KeyboardShortcutsModal';
 
 export function App() {
   const [mode, setMode] = useState<AppMode>('builder');
@@ -58,6 +60,34 @@ export function App() {
   const [isFlythroughPlaying, setIsFlythroughPlaying] = useState<boolean>(true);
   const [flythroughSpeed, setFlythroughSpeed] = useState<number>(1.0);
   const [flythroughCameraMode, setFlythroughCameraMode] = useState<FlythroughCameraMode>('drone');
+
+  // Stage 6 View Modes (2D / Split / 3D) & Shortcuts Cheatsheet
+  const [editorViewMode, setEditorViewMode] = useState<EditorViewMode>('2d');
+  const [showShortcutsModal, setShowShortcutsModal] = useState<boolean>(false);
+
+  // Global Stage 6 Hotkeys: ? for cheatsheet, 1/2/3 for stages, V for view modes
+  useEffect(() => {
+    const handleGlobalKeyDown = (e: KeyboardEvent) => {
+      if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) return;
+
+      if (e.key === '?' || (e.shiftKey && e.code === 'Slash')) {
+        setShowShortcutsModal(prev => !prev);
+        return;
+      }
+
+      if (mode === 'builder') {
+        if (e.code === 'Digit1') setStudioStage('shape');
+        if (e.code === 'Digit2') setStudioStage('dress');
+        if (e.code === 'Digit3') setStudioStage('show');
+        if (e.code === 'KeyV') {
+          setEditorViewMode(prev => prev === '2d' ? 'split' : (prev === 'split' ? '3d' : '2d'));
+        }
+      }
+    };
+
+    window.addEventListener('keydown', handleGlobalKeyDown);
+    return () => window.removeEventListener('keydown', handleGlobalKeyDown);
+  }, [mode]);
 
   // History stack for Undo/Redo
   const historyRef = useRef<TrackHistory>(new TrackHistory(EMPTY_TRACK));
@@ -676,40 +706,58 @@ export function App() {
         onOpenGarage={() => setShowGarageModal(true)}
         studioStage={studioStage}
         onStageChange={setStudioStage}
+        viewMode={editorViewMode}
+        onViewModeChange={setEditorViewMode}
+        onOpenShortcuts={() => setShowShortcutsModal(true)}
       />
 
       <main className="flex-1 relative w-full h-[calc(100vh-64px)] overflow-hidden">
         {mode === 'builder' ? (
           <div className="flex w-full h-full relative">
-            {studioStage === 'show' && is3DFlythrough ? (
-              <FlythroughViewer
-                splinePoints={splinePoints}
-                trackConfig={track}
-                isPlaying={isFlythroughPlaying}
-                progress={flythroughProgress}
-                onProgressChange={setFlythroughProgress}
-                speedMultiplier={flythroughSpeed}
-                cameraMode={flythroughCameraMode}
-              />
-            ) : (
-              <EditorCanvas
-                track={track}
-                setTrack={updateTrackState}
-                selectedNodeId={selectedNodeId}
-                setSelectedNodeId={setSelectedNodeId}
-                selectedNodeIds={selectedNodeIds}
-                setSelectedNodeIds={setSelectedNodeIds}
-                activeTool={activeTool}
-                setActiveTool={setActiveTool}
-                snapEnabled={snapEnabled}
-                onAddPoint={handleAddPoint}
-                onCloseCircuit={() => updateTrackState(prev => ({ ...prev, isClosed: true }), 'Close Circuit')}
-                onMoveStartLine={handleMoveStartLine}
-                corners={trackStats.corners}
-                isCalibrating={isCalibrating}
-                calibrationPoints={calibrationPoints}
-                onCalibrationClick={handleCalibrationClick}
-              />
+            {/* 2D Canvas Viewport (rendered in 2D and Split view modes) */}
+            {editorViewMode !== '3d' && (
+              <div className={`h-full relative ${editorViewMode === 'split' ? 'w-1/2 border-r border-slate-800' : 'w-full'}`}>
+                <EditorCanvas
+                  track={track}
+                  setTrack={updateTrackState}
+                  selectedNodeId={selectedNodeId}
+                  setSelectedNodeId={setSelectedNodeId}
+                  selectedNodeIds={selectedNodeIds}
+                  setSelectedNodeIds={setSelectedNodeIds}
+                  activeTool={activeTool}
+                  setActiveTool={setActiveTool}
+                  snapEnabled={snapEnabled}
+                  onAddPoint={handleAddPoint}
+                  onCloseCircuit={() => updateTrackState(prev => ({ ...prev, isClosed: true }), 'Close Circuit')}
+                  onMoveStartLine={handleMoveStartLine}
+                  corners={trackStats.corners}
+                  isCalibrating={isCalibrating}
+                  calibrationPoints={calibrationPoints}
+                  onCalibrationClick={handleCalibrationClick}
+                />
+              </div>
+            )}
+
+            {/* 3D Orbit / Flythrough Viewport (rendered in 3D and Split view modes) */}
+            {editorViewMode !== '2d' && (
+              <div className={`h-full relative ${editorViewMode === 'split' ? 'w-1/2' : 'w-full'}`}>
+                {studioStage === 'show' && is3DFlythrough ? (
+                  <FlythroughViewer
+                    splinePoints={splinePoints}
+                    trackConfig={track}
+                    isPlaying={isFlythroughPlaying}
+                    progress={flythroughProgress}
+                    onProgressChange={setFlythroughProgress}
+                    speedMultiplier={flythroughSpeed}
+                    cameraMode={flythroughCameraMode}
+                  />
+                ) : (
+                  <StudioOrbitViewer
+                    splinePoints={splinePoints}
+                    trackConfig={track}
+                  />
+                )}
+              </div>
             )}
 
             {/* Stage 1 & 2: Shape Stage Point Inspector (Elevation, width, banking, runoff, naming) */}
@@ -902,6 +950,12 @@ export function App() {
             onClose={() => setShowGarageModal(false)}
           />
         )}
+
+        {/* Global Keyboard Shortcuts Cheatsheet Modal */}
+        <KeyboardShortcutsModal
+          isOpen={showShortcutsModal}
+          onClose={() => setShowShortcutsModal(false)}
+        />
       </main>
     </div>
   );

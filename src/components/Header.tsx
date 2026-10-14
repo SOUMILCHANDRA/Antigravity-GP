@@ -6,9 +6,10 @@ import {
   Download, 
   Upload,
   Play,
-  Car
+  Car,
+  HelpCircle
 } from 'lucide-react';
-import { AppMode, TrackConfig, StudioStage } from '../types/track';
+import { AppMode, TrackConfig, StudioStage, EditorViewMode } from '../types/track';
 import { CAR_PRESETS, DEFAULT_PLAYER_CAR_ID } from '../utils/carPresets';
 
 interface HeaderProps {
@@ -24,6 +25,9 @@ interface HeaderProps {
   onOpenGarage: () => void;
   studioStage?: StudioStage;
   onStageChange?: (stage: StudioStage) => void;
+  viewMode?: EditorViewMode;
+  onViewModeChange?: (viewMode: EditorViewMode) => void;
+  onOpenShortcuts?: () => void;
 }
 
 export const Header: React.FC<HeaderProps> = ({
@@ -38,7 +42,10 @@ export const Header: React.FC<HeaderProps> = ({
   playerCarId,
   onOpenGarage,
   studioStage = 'shape',
-  onStageChange
+  onStageChange,
+  viewMode = '2d',
+  onViewModeChange,
+  onOpenShortcuts
 }) => {
   const isValidTrack = currentTrack.isClosed && currentTrack.nodes.length >= 3;
   const currentCar = CAR_PRESETS[playerCarId] || CAR_PRESETS[DEFAULT_PLAYER_CAR_ID];
@@ -98,6 +105,45 @@ export const Header: React.FC<HeaderProps> = ({
             }`}
           >
             <span>3. SHOW</span>
+          </button>
+        </div>
+      )}
+
+      {/* 2D / Split / 3D View Switcher */}
+      {mode === 'builder' && (
+        <div className="hidden xl:flex items-center gap-1 p-1 bg-[#121721] rounded-xl border border-[#1E2638] text-xs font-mono">
+          <button
+            onClick={() => onViewModeChange?.('2d')}
+            className={`px-2.5 py-1 rounded-lg font-bold transition-all cursor-pointer ${
+              viewMode === '2d'
+                ? 'bg-slate-700 text-white shadow-sm'
+                : 'text-slate-400 hover:text-slate-200'
+            }`}
+            title="2D Top-down Canvas"
+          >
+            2D
+          </button>
+          <button
+            onClick={() => onViewModeChange?.('split')}
+            className={`px-2.5 py-1 rounded-lg font-bold transition-all cursor-pointer ${
+              viewMode === 'split'
+                ? 'bg-cyan-600 text-white shadow-sm shadow-cyan-600/30'
+                : 'text-slate-400 hover:text-slate-200'
+            }`}
+            title="Split Screen: 2D Canvas + 3D Orbit View"
+          >
+            SPLIT
+          </button>
+          <button
+            onClick={() => onViewModeChange?.('3d')}
+            className={`px-2.5 py-1 rounded-lg font-bold transition-all cursor-pointer ${
+              viewMode === '3d'
+                ? 'bg-purple-600 text-white shadow-sm shadow-purple-600/30'
+                : 'text-slate-400 hover:text-slate-200'
+            }`}
+            title="Full 3D Orbit Inspector"
+          >
+            3D
           </button>
         </div>
       )}
@@ -192,6 +238,14 @@ export const Header: React.FC<HeaderProps> = ({
             }`}
           >
             {isMuted ? <VolumeX className="w-4 h-4" /> : <Volume2 className="w-4 h-4" />}
+          </button>
+
+          <button
+            onClick={onOpenShortcuts}
+            title="Keyboard Shortcuts Cheatsheet (?)"
+            className="p-2 rounded-lg bg-[#121721] hover:bg-slate-800 border border-[#1E2638] text-slate-300 hover:text-cyan-400 transition-colors cursor-pointer"
+          >
+            <HelpCircle className="w-4 h-4" />
           </button>
         </div>
       </div>

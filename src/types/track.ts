@@ -86,6 +86,7 @@ export interface TrackConfig {
 
 export type EditorTool = 'draw' | 'edit' | 'erase' | 'pan';
 export type StudioStage = 'shape' | 'dress' | 'show';
+export type EditorViewMode = '2d' | 'split' | '3d';
 
 export interface SplinePoint {
   position: Vector3D;
