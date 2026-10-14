@@ -2,6 +2,7 @@ import { AICompetitorState, AIDifficulty, CarState, LapTelemetry, RaceBattleStat
 import { getNearestSplinePoint, checkFinishLineCrossing } from './spline';
 import { RacingLinePoint } from './racingLine';
 import { CAR_PRESETS, DEFAULT_AI_CAR_ID } from './carPresets';
+import { computeVehicleSurfaceAlignment } from './physics';
 
 export const INITIAL_AI_TELEMETRY: LapTelemetry = {
   currentLapTime: 0,
@@ -60,12 +61,12 @@ export function createAICompetitor(
 
   // Slot 2: 4.5m behind player along track tangent, offset 2.5m to the right side of the track
   const spawnX = p0.position.x - forward.x * 4.5 + binormal.x * 2.5;
-  const spawnY = p0.position.y + 0.10;
   const spawnZ = p0.position.z - forward.z * 4.5 + binormal.z * 2.5;
+  const spawnAlign = computeVehicleSurfaceAlignment(spawnX, spawnZ, yaw, p0, 0.14);
 
   return {
-    position: { x: spawnX, y: spawnY, z: spawnZ },
-    rotation: { x: 0, y: yaw, z: 0 },
+    position: { x: spawnX, y: spawnAlign.surfaceY, z: spawnZ },
+    rotation: { x: spawnAlign.pitch, y: spawnAlign.yaw, z: spawnAlign.roll },
     velocity: { x: 0, y: 0, z: 0 },
     speedKmh: 0,
     throttle: 0,
@@ -470,13 +471,8 @@ export function updateAICompetitor(params: AIUpdateParams): {
     newYaw = normalizeAngle(newYaw * 0.85 + tangentYaw * 0.15);
   }
 
-  const bankDeg = nearestP.banking || 0;
-  const bankRad = bankDeg * (Math.PI / 180);
-  const cosBank = Math.cos(bankRad);
-  const sinBank = Math.sin(bankRad);
-  const bLatY = nearestP.binormal.y * cosBank + nearestP.normal.y * sinBank;
-  const surfaceY = (nearestP.position.y || 0) + bLatY * currentLatOffset;
-  const newPosY = aiState.position.y + (surfaceY + 0.05 - aiState.position.y) * (dt * 8.0);
+  const align = computeVehicleSurfaceAlignment(newPosX, newPosZ, newYaw, nearestP, 0.14);
+  const newPosY = aiState.position.y + (align.surfaceY - aiState.position.y) * Math.min(1.0, dt * 35.0);
 
   // 11. Sector & Finish Line Tracking
   const startP = splinePoints[0];
@@ -531,7 +527,11 @@ export function updateAICompetitor(params: AIUpdateParams): {
   const nextAIState: AICompetitorState = {
     ...aiState,
     position: { x: newPosX, y: newPosY, z: newPosZ },
-    rotation: { x: 0, y: newYaw, z: (steeringInput * -0.04) + bankRad },
+    rotation: {
+      x: align.pitch,
+      y: align.yaw,
+      z: align.roll + (steeringInput * -0.04)
+    },
     velocity: { x: dirX * newSpeedMs, y: 0, z: dirZ * newSpeedMs },
     speedKmh: Math.round(newSpeedMs * 3.6),
     throttle,

@@ -156,7 +156,7 @@ export const F1Car: React.FC<F1CarProps> = ({
     const rz = isNaN(carState.rotation.z) ? 0 : carState.rotation.z;
 
     vehicleRootRef.current.position.set(px, py, pz);
-    vehicleRootRef.current.rotation.set(rx, ry, rz);
+    vehicleRootRef.current.rotation.set(rx, ry, rz, 'YXZ');
 
     if (beaconRef.current) {
       const rotSpeed = (isDrafting || isOvertaking) ? 5.5 : 2.5;

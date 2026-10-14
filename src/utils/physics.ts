@@ -1,3 +1,4 @@
+import * as THREE from 'three';
 import { CarState, SplinePoint, TrackConfig } from '../types/track';
 import { getNearestSplinePoint, getTrackSpawnTransform } from './spline';
 import { CAR_PRESETS, CarSpecs, DEFAULT_PLAYER_CAR_ID } from './carPresets';
@@ -44,6 +45,93 @@ export function resetVehicle(carState: CarState, splinePoints: SplinePoint[]): C
     offTrack: false,
     skidding: false,
     carId: carState.carId
+  };
+}
+
+/**
+ * Computes exact 3D surface alignment, height, pitch, yaw, and roll on banked/elevated track
+ */
+export function computeVehicleSurfaceAlignment(
+  posX: number,
+  posZ: number,
+  headingYaw: number,
+  nearestPoint: SplinePoint | null,
+  rideHeight: number = 0.14
+): {
+  surfaceY: number;
+  pitch: number;
+  yaw: number;
+  roll: number;
+} {
+  if (!nearestPoint) {
+    return { surfaceY: rideHeight, pitch: 0, yaw: headingYaw, roll: 0 };
+  }
+
+  const bankRad = (nearestPoint.banking || 0) * (Math.PI / 180);
+  const cosBank = Math.cos(bankRad);
+  const sinBank = Math.sin(bankRad);
+
+  // Banked lateral vector across track surface
+  const bLatX = nearestPoint.binormal.x * cosBank + nearestPoint.normal.x * sinBank;
+  const bLatY = nearestPoint.binormal.y * cosBank + nearestPoint.normal.y * sinBank;
+  const bLatZ = nearestPoint.binormal.z * cosBank + nearestPoint.normal.z * sinBank;
+
+  // Banked surface normal (perpendicular to road surface)
+  const bUpX = -nearestPoint.binormal.x * sinBank + nearestPoint.normal.x * cosBank;
+  const bUpY = -nearestPoint.binormal.y * sinBank + nearestPoint.normal.y * cosBank;
+  const bUpZ = -nearestPoint.binormal.z * sinBank + nearestPoint.normal.z * cosBank;
+
+  // Lateral distance from track centerline
+  const toCarX = posX - nearestPoint.position.x;
+  const toCarZ = posZ - nearestPoint.position.z;
+  const latOffset = toCarX * bLatX + toCarZ * bLatZ;
+
+  let surfaceY = (nearestPoint.position.y || 0) + bLatY * latOffset + bUpY * rideHeight;
+
+  // Smooth terrain slope if off beyond runoff
+  const halfW = (nearestPoint.width || 14) / 2;
+  const runoffW = nearestPoint.runoffWidth || 8.5;
+  const totalTrackMargin = halfW + runoffW + 2.0;
+  const absLat = Math.abs(latOffset);
+
+  if (absLat > totalTrackMargin) {
+    const excess = absLat - totalTrackMargin;
+    const slopeFalloff = Math.max(0, 1.0 - excess / 50.0);
+    surfaceY = Math.max(0, surfaceY * slopeFalloff + 0.14);
+  }
+
+  // Heading vector along horizontal plane
+  const hX = Math.sin(headingYaw);
+  const hZ = Math.cos(headingYaw);
+
+  // Project heading onto the surface plane: F = normalize(h - (h . bUp) * bUp)
+  const hDotUp = hX * bUpX + hZ * bUpZ;
+  let fX = hX - bUpX * hDotUp;
+  let fY = -bUpY * hDotUp;
+  let fZ = hZ - bUpZ * hDotUp;
+  const fLen = Math.hypot(fX, fY, fZ) || 1;
+  fX /= fLen;
+  fY /= fLen;
+  fZ /= fLen;
+
+  // Car local Right vector R = bUp x F
+  const rX = bUpY * fZ - bUpZ * fY;
+  const rY = bUpZ * fX - bUpX * fZ;
+  const rZ = bUpX * fY - bUpY * fX;
+
+  const rotMat = new THREE.Matrix4().set(
+    rX, bUpX, fX, 0,
+    rY, bUpY, fY, 0,
+    rZ, bUpZ, fZ, 0,
+    0, 0, 0, 1
+  );
+  const euler = new THREE.Euler().setFromRotationMatrix(rotMat, 'YXZ');
+
+  return {
+    surfaceY,
+    pitch: euler.x,
+    yaw: euler.y,
+    roll: euler.z
   };
 }
 
@@ -232,29 +320,37 @@ export function updateCarPhysics(
   const curPosY = isNaN(currentState.position.y) ? 0.1 : currentState.position.y;
   const curPosZ = isNaN(currentState.position.z) ? 0 : currentState.position.z;
 
-  let targetY = nearestPoint ? nearestPoint.position.y : 0;
-  if (nearestPoint) {
-    const toCarX = curPosX - nearestPoint.position.x;
-    const toCarZ = curPosZ - nearestPoint.position.z;
-    const latOffset = toCarX * nearestPoint.binormal.x + toCarZ * nearestPoint.binormal.z;
-    const sinBank = Math.sin(bankRad);
-    const bLatY = nearestPoint.binormal.y * cosBank + nearestPoint.normal.y * sinBank;
-    targetY = nearestPoint.position.y + bLatY * latOffset;
-  }
-  const newY = curPosY + (targetY - curPosY) * (dt * 8.0);
+  const nextPosX = curPosX + (isNaN(dx) ? 0 : dx);
+  const nextPosZ = curPosZ + (isNaN(dz) ? 0 : dz);
+
+  // Compute exact surface alignment (height, pitch, yaw, roll)
+  const align = computeVehicleSurfaceAlignment(
+    nextPosX,
+    nextPosZ,
+    newYaw,
+    nearestPoint,
+    0.14
+  );
+
+  // Snappy suspension: tracks surface with high stability and zero lag penetration
+  const newY = curPosY + (align.surfaceY - curPosY) * Math.min(1.0, dt * 35.0);
 
   const newSpeedKmh = Math.round(newSpeedMs * 3.6);
 
   return {
     position: {
-      x: curPosX + (isNaN(dx) ? 0 : dx),
+      x: nextPosX,
       y: isNaN(newY) ? curPosY : newY,
-      z: curPosZ + (isNaN(dz) ? 0 : dz)
+      z: nextPosZ
     },
-    rotation: { x: 0, y: newYaw, z: (steering * -0.05) + bankRad },
+    rotation: {
+      x: align.pitch,
+      y: align.yaw,
+      z: align.roll + (steering * -0.04)
+    },
     velocity: {
       x: dirX * newSpeedMs,
-      y: 0,
+      y: (newY - curPosY) / Math.max(0.001, dt),
       z: dirZ * newSpeedMs
     },
     speedKmh: isNaN(newSpeedKmh) ? 0 : newSpeedKmh,

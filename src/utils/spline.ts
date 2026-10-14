@@ -92,13 +92,44 @@ export function getTrackSpawnTransform(splinePoints: SplinePoint[]): {
   const dx = p1.position.x - p0.position.x;
   const dz = p1.position.z - p0.position.z;
   const len = Math.hypot(dx, dz) || 1;
-
   const trackForward: Vector3D = { x: dx / len, y: 0, z: dz / len };
-  const physicsYaw = Math.atan2(trackForward.x, trackForward.z);
+
+  const bankRad = (p0.banking || 0) * (Math.PI / 180);
+  const cosBank = Math.cos(bankRad);
+  const sinBank = Math.sin(bankRad);
+
+  const bUpX = -p0.binormal.x * sinBank + p0.normal.x * cosBank;
+  const bUpY = -p0.binormal.y * sinBank + p0.normal.y * cosBank;
+  const bUpZ = -p0.binormal.z * sinBank + p0.normal.z * cosBank;
+
+  const fDotUp = trackForward.x * bUpX + trackForward.z * bUpZ;
+  let fX = trackForward.x - bUpX * fDotUp;
+  let fY = -bUpY * fDotUp;
+  let fZ = trackForward.z - bUpZ * fDotUp;
+  const fLen = Math.hypot(fX, fY, fZ) || 1;
+  fX /= fLen;
+  fY /= fLen;
+  fZ /= fLen;
+
+  const rX = bUpY * fZ - bUpZ * fY;
+  const rY = bUpZ * fX - bUpX * fZ;
+  const rZ = bUpX * fY - bUpY * fX;
+
+  const rotMat = new THREE.Matrix4().set(
+    rX, bUpX, fX, 0,
+    rY, bUpY, fY, 0,
+    rZ, bUpZ, fZ, 0,
+    0, 0, 0, 1
+  );
+  const euler = new THREE.Euler().setFromRotationMatrix(rotMat, 'YXZ');
 
   return {
-    position: { x: p0.position.x, y: p0.position.y + 0.10, z: p0.position.z },
-    rotation: { x: 0, y: physicsYaw, z: 0 },
+    position: {
+      x: p0.position.x + bUpX * 0.14,
+      y: p0.position.y + bUpY * 0.14,
+      z: p0.position.z + bUpZ * 0.14
+    },
+    rotation: { x: euler.x, y: euler.y, z: euler.z },
     forward: trackForward
   };
 }
