@@ -2,6 +2,7 @@ import React, { useMemo } from 'react';
 import * as THREE from 'three';
 import { SplinePoint, TrackConfig } from '../../types/track';
 import { VenueFacilities } from './VenueFacilities';
+import { getTerrainHeight } from '../../utils/terrain';
 
 function createCheckeredTexture(): THREE.CanvasTexture {
   const canvas = document.createElement('canvas');
@@ -92,10 +93,12 @@ export const TrackMesh: React.FC<TrackMeshProps> = ({ splinePoints, trackConfig 
   // Rebuild road mesh cleanly with non-overlapping adjacent strips to eliminate Z-fighting
   const { 
     asphaltGeom, 
+    whiteLinesGeom,
     leftCurbGeom, 
     rightCurbGeom, 
     leftRunoffGeom, 
     rightRunoffGeom,
+    armcoGeom,
     embankmentGeom,
     pitLaneGeom,
     pitWallGeom
@@ -103,10 +106,12 @@ export const TrackMesh: React.FC<TrackMeshProps> = ({ splinePoints, trackConfig 
     if (splinePoints.length < 2) {
       return {
         asphaltGeom: null,
+        whiteLinesGeom: null,
         leftCurbGeom: null,
         rightCurbGeom: null,
         leftRunoffGeom: null,
         rightRunoffGeom: null,
+        armcoGeom: null,
         embankmentGeom: null,
         pitLaneGeom: null,
         pitWallGeom: null
@@ -119,6 +124,9 @@ export const TrackMesh: React.FC<TrackMeshProps> = ({ splinePoints, trackConfig 
     const asphaltUvs: number[] = [];
     const quadIndices: number[] = [];
 
+    const whiteLinesVerts: number[] = [];
+    const whiteLinesIndices: number[] = [];
+
     const lCurbVerts: number[] = [];
     const lCurbUvs: number[] = [];
     const rCurbVerts: number[] = [];
@@ -127,6 +135,9 @@ export const TrackMesh: React.FC<TrackMeshProps> = ({ splinePoints, trackConfig 
 
     const lRunoffVerts: number[] = [];
     const rRunoffVerts: number[] = [];
+
+    const armcoVerts: number[] = [];
+    const armcoIndices: number[] = [];
 
     const embankmentVerts: number[] = [];
     const embankmentIndices: number[] = [];
@@ -166,7 +177,16 @@ export const TrackMesh: React.FC<TrackMeshProps> = ({ splinePoints, trackConfig 
       asphaltVerts.push(lx, ly, lz, rx, ry, rz);
 
       const v = i / (numPoints - 1);
-      asphaltUvs.push(0, v * 25, 1, v * 25);
+      asphaltUvs.push(0, v * 30, 1, v * 30);
+
+      // 1b. Crisp FIA White Edge Lines (0.18m wide ribbons on road edges)
+      const lineLift = 0.006;
+      whiteLinesVerts.push(
+        lx, ly + bUpY * lineLift, lz,
+        lx + bLatX * 0.18, ly + bLatY * 0.18 + bUpY * lineLift, lz + bLatZ * 0.18,
+        rx - bLatX * 0.18, ry - bLatY * 0.18 + bUpY * lineLift, rz - bLatZ * 0.18,
+        rx, ry + bUpY * lineLift, rz
+      );
 
       // 2. Left Kerb Strip (from clx to lx, offset slightly above road along banked up)
       const clx = lx - bLatX * kerbWidth;
@@ -228,15 +248,11 @@ export const TrackMesh: React.FC<TrackMeshProps> = ({ splinePoints, trackConfig 
       const curvMag = Math.hypot(dtanX, dtanZ) / dDist;
       const localR = curvMag > 0.0003 ? (1 / curvMag) : 2500;
 
-      // Turning direction: > 0 means turning right, < 0 means turning left
       const turnSign = p.tangent.x * dtanZ - p.tangent.z * dtanX;
       const isTurnRight = turnSign > 0.0005;
       const isTurnLeft = turnSign < -0.0005;
 
-      // Desired slope width based on elevation (natural ~1:2.2 grade down to ground level)
       const baseSlopeW = Math.abs(elev) > 0.4 ? (Math.abs(elev) * 2.2 + 5.0) : 4.5;
-
-      // Safe clearance limits on inside curve so vertices never cross center of curvature
       const totalTrackRadiusL = halfW + kerbWidth + gravelW;
       const totalTrackRadiusR = halfW + kerbWidth + gravelW;
 
@@ -247,19 +263,15 @@ export const TrackMesh: React.FC<TrackMeshProps> = ({ splinePoints, trackConfig 
       let slopeWR = baseSlopeW;
 
       if (isTurnLeft) {
-        // Left is inside the turn: clamp inward extension to safe fraction of radius
         const maxInsideClearance = Math.max(3.0, (localR - totalTrackRadiusL) * 0.65);
         shoulderWL = Math.min(3.0, maxInsideClearance * 0.35);
         slopeWL = Math.min(baseSlopeW, Math.max(1.5, maxInsideClearance - shoulderWL));
-        // Right is outside: expands smoothly
         shoulderWR = 4.5;
         slopeWR = Math.min(55.0, baseSlopeW);
       } else if (isTurnRight) {
-        // Right is inside the turn: clamp inward extension
         const maxInsideClearance = Math.max(3.0, (localR - totalTrackRadiusR) * 0.65);
         shoulderWR = Math.min(3.0, maxInsideClearance * 0.35);
         slopeWR = Math.min(baseSlopeW, Math.max(1.5, maxInsideClearance - shoulderWR));
-        // Left is outside: expands smoothly
         shoulderWL = 4.5;
         slopeWL = Math.min(55.0, baseSlopeW);
       }
@@ -268,25 +280,45 @@ export const TrackMesh: React.FC<TrackMeshProps> = ({ splinePoints, trackConfig 
       const hBinX = p.binormal.x;
       const hBinZ = p.binormal.z;
 
-      // Left grass shoulder berm
+      // 6a. Continuous Armco Steel Guardrails (placed outside runoffs)
+      const armcoOffset = 0.8;
+      const axL = rfxL_pos_x - hBinX * armcoOffset;
+      const azL = rfxL_pos_z - hBinZ * armcoOffset;
+      const ayL = rfxL_pos_y;
+
+      const axR = rfxR_pos_x + hBinX * armcoOffset;
+      const azR = rfxR_pos_z + hBinZ * armcoOffset;
+      const ayR = rfxR_pos_y;
+
+      armcoVerts.push(
+        // Left Guardrail (3 vertices: bottom, corrugated ridge, top)
+        axL, ayL, azL,
+        axL - hBinX * 0.06, ayL + 0.55, azL - hBinZ * 0.06,
+        axL, ayL + 1.15, azL,
+        // Right Guardrail
+        axR, ayR, azR,
+        axR + hBinX * 0.06, ayR + 0.55, azR + hBinZ * 0.06,
+        axR, ayR + 1.15, azR
+      );
+
+      // 6b. Grass shoulder berm and toe connecting seamlessly to conforming terrain
       const bermLx = rfxL_pos_x - hBinX * shoulderWL;
-      const bermLy = Math.max(-0.2, rfxL_pos_y - 0.25);
       const bermLz = rfxL_pos_z - hBinZ * shoulderWL;
+      const terrainBermL = getTerrainHeight(bermLx, bermLz, splinePoints);
+      const bermLy = Math.max(terrainBermL, rfxL_pos_y - 0.25);
 
-      // Left ground slope toe
       const toeLx = bermLx - hBinX * slopeWL;
-      const toeLy = -0.2;
       const toeLz = bermLz - hBinZ * slopeWL;
+      const toeLy = getTerrainHeight(toeLx, toeLz, splinePoints);
 
-      // Right grass shoulder berm
       const bermRx = rfxR_pos_x + hBinX * shoulderWR;
-      const bermRy = Math.max(-0.2, rfxR_pos_y - 0.25);
       const bermRz = rfxR_pos_z + hBinZ * shoulderWR;
+      const terrainBermR = getTerrainHeight(bermRx, bermRz, splinePoints);
+      const bermRy = Math.max(terrainBermR, rfxR_pos_y - 0.25);
 
-      // Right ground slope toe
       const toeRx = bermRx + hBinX * slopeWR;
-      const toeRy = -0.2;
       const toeRz = bermRz + hBinZ * slopeWR;
+      const toeRy = getTerrainHeight(toeRx, toeRz, splinePoints);
 
       embankmentVerts.push(
         rfxL_pos_x, rfxL_pos_y, rfxL_pos_z,
@@ -305,19 +337,31 @@ export const TrackMesh: React.FC<TrackMeshProps> = ({ splinePoints, trackConfig 
         curbIndices.push(idx, idx + 1, idx + 2);
         curbIndices.push(idx + 1, idx + 3, idx + 2);
 
+        // White line indices
+        const wIdx = i * 4;
+        const wNxt = (i + 1) * 4;
+        whiteLinesIndices.push(wIdx, wNxt, wIdx + 1, wNxt, wNxt + 1, wIdx + 1);
+        whiteLinesIndices.push(wIdx + 2, wNxt + 2, wIdx + 3, wNxt + 2, wNxt + 3, wIdx + 3);
+
+        // Armco barrier indices
+        const aIdx = i * 6;
+        const aNxt = (i + 1) * 6;
+        // Left Armco
+        armcoIndices.push(aIdx, aNxt, aIdx + 1, aNxt, aNxt + 1, aIdx + 1);
+        armcoIndices.push(aIdx + 1, aNxt + 1, aIdx + 2, aNxt + 1, aNxt + 2, aIdx + 2);
+        // Right Armco
+        armcoIndices.push(aIdx + 3, aIdx + 4, aNxt + 3, aIdx + 4, aNxt + 4, aNxt + 3);
+        armcoIndices.push(aIdx + 4, aIdx + 5, aNxt + 4, aIdx + 5, aNxt + 5, aNxt + 4);
+
         const b = i * 6;
         const nxt = (i + 1) * 6;
-        // Left Strip 1: rfxL -> bermL
         embankmentIndices.push(b + 0, nxt + 0, b + 1);
         embankmentIndices.push(nxt + 0, nxt + 1, b + 1);
-        // Left Strip 2: bermL -> toeL
         embankmentIndices.push(b + 1, nxt + 1, b + 2);
         embankmentIndices.push(nxt + 1, nxt + 2, b + 2);
 
-        // Right Strip 1: rfxR -> bermR
         embankmentIndices.push(b + 3, b + 4, nxt + 3);
         embankmentIndices.push(b + 4, nxt + 4, nxt + 3);
-        // Right Strip 2: bermR -> toeR
         embankmentIndices.push(b + 4, b + 5, nxt + 4);
         embankmentIndices.push(b + 5, nxt + 5, nxt + 4);
       }
@@ -330,6 +374,16 @@ export const TrackMesh: React.FC<TrackMeshProps> = ({ splinePoints, trackConfig 
       quadIndices.push(lastIdx + 1, 1, 0);
       curbIndices.push(lastIdx, lastIdx + 1, 0);
       curbIndices.push(lastIdx + 1, 1, 0);
+
+      const lastWIdx = (numPoints - 1) * 4;
+      whiteLinesIndices.push(lastWIdx, 0, lastWIdx + 1, 0, 1, lastWIdx + 1);
+      whiteLinesIndices.push(lastWIdx + 2, 2, lastWIdx + 3, 2, 3, lastWIdx + 3);
+
+      const lastAIdx = (numPoints - 1) * 6;
+      armcoIndices.push(lastAIdx, 0, lastAIdx + 1, 0, 1, lastAIdx + 1);
+      armcoIndices.push(lastAIdx + 1, 1, lastAIdx + 2, 1, 2, lastAIdx + 2);
+      armcoIndices.push(lastAIdx + 3, lastAIdx + 4, 3, lastAIdx + 4, 4, 3);
+      armcoIndices.push(lastAIdx + 4, lastAIdx + 5, 4, lastAIdx + 5, 5, 4);
 
       const b = (numPoints - 1) * 6;
       const nxt = 0;
@@ -349,6 +403,16 @@ export const TrackMesh: React.FC<TrackMeshProps> = ({ splinePoints, trackConfig 
     aGeom.setAttribute('uv', new THREE.Float32BufferAttribute(asphaltUvs, 2));
     aGeom.setIndex(quadIndices);
     aGeom.computeVertexNormals();
+
+    const wGeom = new THREE.BufferGeometry();
+    wGeom.setAttribute('position', new THREE.Float32BufferAttribute(whiteLinesVerts, 3));
+    wGeom.setIndex(whiteLinesIndices);
+    wGeom.computeVertexNormals();
+
+    const armGeom = new THREE.BufferGeometry();
+    armGeom.setAttribute('position', new THREE.Float32BufferAttribute(armcoVerts, 3));
+    armGeom.setIndex(armcoIndices);
+    armGeom.computeVertexNormals();
 
     const lcGeom = new THREE.BufferGeometry();
     lcGeom.setAttribute('position', new THREE.Float32BufferAttribute(lCurbVerts, 3));
@@ -377,7 +441,7 @@ export const TrackMesh: React.FC<TrackMeshProps> = ({ splinePoints, trackConfig 
     embGeom.setIndex(embankmentIndices);
     embGeom.computeVertexNormals();
 
-    // 6. Pit Lane Road & Concrete Pit Wall Geometry (if enabled)
+    // 7. Pit Lane Road & Concrete Pit Wall Geometry (if enabled)
     let pLaneGeom: THREE.BufferGeometry | null = null;
     let pWallGeom: THREE.BufferGeometry | null = null;
 
@@ -390,7 +454,6 @@ export const TrackMesh: React.FC<TrackMeshProps> = ({ splinePoints, trackConfig 
       const pitWallVerts: number[] = [];
       const pitWallIndices: number[] = [];
 
-      // Pit lane spans before and after start/finish line (index 0)
       const pitSpan = Math.min(30, Math.floor(numPoints * 0.08));
       const pitIndicesSeq: number[] = [];
       for (let i = numPoints - pitSpan; i < numPoints; i++) pitIndicesSeq.push(i);
@@ -402,7 +465,6 @@ export const TrackMesh: React.FC<TrackMeshProps> = ({ splinePoints, trackConfig 
         const p = splinePoints[pIdx];
         const halfW = p.width / 2;
 
-        // Taper width at pit entry (first 5 points) and pit exit (last 5 points)
         let taper = 1.0;
         if (sIdx < 5) taper = sIdx / 5;
         else if (sIdx > totalPitSteps - 6) taper = (totalPitSteps - 1 - sIdx) / 5;
@@ -412,7 +474,6 @@ export const TrackMesh: React.FC<TrackMeshProps> = ({ splinePoints, trackConfig 
         const roadInner = halfW + 0.9;
         const roadOuter = roadInner + currentW;
 
-        // Pit Lane Ribbon
         const inX = p.position.x + p.binormal.x * sideMult * roadInner;
         const inY = p.position.y + 0.01;
         const inZ = p.position.z + p.binormal.z * sideMult * roadInner;
@@ -423,19 +484,27 @@ export const TrackMesh: React.FC<TrackMeshProps> = ({ splinePoints, trackConfig 
 
         pitLaneVerts.push(inX, inY, inZ, outX, outY, outZ);
 
-        // Pit Wall (1.1m concrete barrier along wallOffset)
-        const wx = p.position.x + p.binormal.x * sideMult * wallOffset;
-        const wy = p.position.y;
-        const wz = p.position.z + p.binormal.z * sideMult * wallOffset;
-        pitWallVerts.push(wx, wy, wz, wx, wy + 1.1, wz);
+        const wX = p.position.x + p.binormal.x * sideMult * wallOffset;
+        const wY = p.position.y;
+        const wZ = p.position.z + p.binormal.z * sideMult * wallOffset;
+
+        pitWallVerts.push(
+          wX, wY, wZ,
+          wX, wY + 1.1, wZ,
+          wX + p.binormal.x * sideMult * 0.4, wY + 1.1, wZ + p.binormal.z * sideMult * 0.4,
+          wX + p.binormal.x * sideMult * 0.4, wY, wZ + p.binormal.z * sideMult * 0.4
+        );
 
         if (sIdx < totalPitSteps - 1) {
-          const vIdx = sIdx * 2;
-          pitLaneIndices.push(vIdx, vIdx + 1, vIdx + 2);
-          pitLaneIndices.push(vIdx + 1, vIdx + 3, vIdx + 2);
+          const lIdx = sIdx * 2;
+          pitLaneIndices.push(lIdx, lIdx + 1, lIdx + 2);
+          pitLaneIndices.push(lIdx + 1, lIdx + 3, lIdx + 2);
 
-          pitWallIndices.push(vIdx, vIdx + 1, vIdx + 2);
-          pitWallIndices.push(vIdx + 1, vIdx + 3, vIdx + 2);
+          const wBase = sIdx * 4;
+          const wNxt = (sIdx + 1) * 4;
+          pitWallIndices.push(wBase, wNxt, wBase + 1, wNxt, wNxt + 1, wBase + 1);
+          pitWallIndices.push(wBase + 1, wNxt + 1, wBase + 2, wNxt + 1, wNxt + 2, wBase + 2);
+          pitWallIndices.push(wBase + 2, wNxt + 2, wBase + 3, wNxt + 2, wNxt + 3, wBase + 3);
         }
       }
 
@@ -452,36 +521,33 @@ export const TrackMesh: React.FC<TrackMeshProps> = ({ splinePoints, trackConfig 
 
     return {
       asphaltGeom: aGeom,
+      whiteLinesGeom: wGeom,
       leftCurbGeom: lcGeom,
       rightCurbGeom: rcGeom,
       leftRunoffGeom: lroGeom,
       rightRunoffGeom: rroGeom,
+      armcoGeom: armGeom,
       embankmentGeom: embGeom,
       pitLaneGeom: pLaneGeom,
       pitWallGeom: pWallGeom
     };
-  }, [splinePoints, trackConfig.isClosed, pitLane?.enabled, pitLane?.side, pitLane?.width]);
+  }, [splinePoints, dressing, pitLane]);
 
-  if (!asphaltGeom) return null;
+  const startP = splinePoints[trackConfig.startIndex || 0] || splinePoints[0];
 
-  const startP = splinePoints[0];
-
-  // Banked and slope-aligned orientation for Start/Finish Gantry & checkered line
   const gantryAlign = useMemo(() => {
     if (!startP) return { pos: [0, 0, 0] as [number, number, number], rot: [0, 0, 0] as [number, number, number] };
-    const dx = splinePoints[1]?.position.x ?? (startP.position.x + startP.tangent.x);
-    const dz = splinePoints[1]?.position.z ?? (startP.position.z + startP.tangent.z);
-    const yaw = Math.atan2(dx - startP.position.x, dz - startP.position.z);
 
     const bankRad = (startP.banking || 0) * (Math.PI / 180);
-    const cosB = Math.cos(bankRad);
-    const sinB = Math.sin(bankRad);
-    const bUpX = -startP.binormal.x * sinB + startP.normal.x * cosB;
-    const bUpY = -startP.binormal.y * sinB + startP.normal.y * cosB;
-    const bUpZ = -startP.binormal.z * sinB + startP.normal.z * cosB;
+    const cosBank = Math.cos(bankRad);
+    const sinBank = Math.sin(bankRad);
 
-    const hX = Math.sin(yaw);
-    const hZ = Math.cos(yaw);
+    const bUpX = -startP.binormal.x * sinBank + startP.normal.x * cosBank;
+    const bUpY = -startP.binormal.y * sinBank + startP.normal.y * cosBank;
+    const bUpZ = -startP.binormal.z * sinBank + startP.normal.z * cosBank;
+
+    const hX = startP.tangent.x;
+    const hZ = startP.tangent.z;
     const hDotUp = hX * bUpX + hZ * bUpZ;
     let fX = hX - bUpX * hDotUp;
     let fY = -bUpY * hDotUp;
@@ -510,7 +576,6 @@ export const TrackMesh: React.FC<TrackMeshProps> = ({ splinePoints, trackConfig 
   const checkeredTex = useMemo(() => createCheckeredTexture(), []);
   const curbTex = useMemo(() => createCurbTexture(dressing?.curbStyle), [dressing?.curbStyle]);
 
-  // Asphalt surface styling parameters
   const asphaltProps = useMemo(() => {
     switch (dressing?.asphaltStyle) {
       case 'classic_weathered':
@@ -525,7 +590,6 @@ export const TrackMesh: React.FC<TrackMeshProps> = ({ splinePoints, trackConfig 
     }
   }, [dressing?.asphaltStyle]);
 
-  // Runoff styling parameters
   const runoffColor = useMemo(() => {
     switch (dressing?.runoffStyle) {
       case 'asphalt_stripes':
@@ -544,9 +608,9 @@ export const TrackMesh: React.FC<TrackMeshProps> = ({ splinePoints, trackConfig 
       {embankmentGeom && (
         <mesh geometry={embankmentGeom} receiveShadow>
           <meshStandardMaterial
-            color="#182A1A"
+            color="#1B381C"
             roughness={0.92}
-            metalness={0.03}
+            metalness={0.02}
             side={THREE.DoubleSide}
           />
         </mesh>
@@ -567,14 +631,23 @@ export const TrackMesh: React.FC<TrackMeshProps> = ({ splinePoints, trackConfig 
       )}
 
       {/* 3. Main Asphalt Road Ribbon */}
-      <mesh geometry={asphaltGeom} receiveShadow castShadow>
-        <meshStandardMaterial
-          color={asphaltProps.color}
-          roughness={asphaltProps.roughness}
-          metalness={asphaltProps.metalness}
-          side={THREE.DoubleSide}
-        />
-      </mesh>
+      {asphaltGeom && (
+        <mesh geometry={asphaltGeom} receiveShadow castShadow>
+          <meshStandardMaterial
+            color={asphaltProps.color}
+            roughness={asphaltProps.roughness}
+            metalness={asphaltProps.metalness}
+            side={THREE.DoubleSide}
+          />
+        </mesh>
+      )}
+
+      {/* 3b. Crisp White Boundary Edge Lines */}
+      {whiteLinesGeom && (
+        <mesh geometry={whiteLinesGeom}>
+          <meshStandardMaterial color="#FFFFFF" roughness={0.3} metalness={0.1} side={THREE.DoubleSide} />
+        </mesh>
+      )}
 
       {/* 4. Left Kerb Strip with Dynamic Style */}
       {leftCurbGeom && (
@@ -590,24 +663,31 @@ export const TrackMesh: React.FC<TrackMeshProps> = ({ splinePoints, trackConfig 
         </mesh>
       )}
 
-      {/* 6. Pit Lane Road Surface */}
+      {/* 6. Continuous FIA Armco Steel Guardrails */}
+      {armcoGeom && (
+        <mesh geometry={armcoGeom} receiveShadow castShadow>
+          <meshStandardMaterial color="#94A3B8" roughness={0.25} metalness={0.85} side={THREE.DoubleSide} />
+        </mesh>
+      )}
+
+      {/* 7. Pit Lane Road Surface */}
       {pitLaneGeom && (
         <mesh geometry={pitLaneGeom} receiveShadow>
           <meshStandardMaterial color="#333A48" roughness={0.7} metalness={0.15} side={THREE.DoubleSide} />
         </mesh>
       )}
 
-      {/* 7. Concrete Pit Wall Barrier */}
+      {/* 8. Concrete Pit Wall Barrier */}
       {pitWallGeom && (
         <mesh geometry={pitWallGeom} receiveShadow castShadow>
           <meshStandardMaterial color="#475569" roughness={0.8} metalness={0.2} side={THREE.DoubleSide} />
         </mesh>
       )}
 
-      {/* 8. 3D Venue Facilities Library */}
+      {/* 9. 3D Venue Facilities Library */}
       <VenueFacilities facilities={trackConfig.facilities} splinePoints={splinePoints} />
 
-      {/* 9. Start / Finish Line Arch Bridge */}
+      {/* 10. Start / Finish Line Arch Bridge */}
       {startP && (
         <group position={gantryAlign.pos} rotation={gantryAlign.rot}>
           <mesh position={[-startP.width / 2 - 1.2, 4.2, 0]}>

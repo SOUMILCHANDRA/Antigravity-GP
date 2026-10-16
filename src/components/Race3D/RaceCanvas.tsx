@@ -35,7 +35,7 @@ export const RaceCanvas: React.FC<RaceCanvasProps> = ({
         className="w-full h-full block"
       >
         <CameraController carState={carState} />
-        <Environment />
+        <Environment splinePoints={splinePoints} />
         <TrackMesh splinePoints={splinePoints} trackConfig={trackConfig} />
         <IdealRacingLine splinePoints={splinePoints} visible={showRacingLine} />
         <F1Car carState={carState} carId={playerCarId || carState.carId} />

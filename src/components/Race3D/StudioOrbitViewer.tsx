@@ -65,7 +65,7 @@ export const StudioOrbitViewer: React.FC<StudioOrbitViewerProps> = ({
           maxDistance={2500}
           maxPolarAngle={Math.PI / 2 - 0.02} // Keep camera above ground
         />
-        <Environment />
+        <Environment splinePoints={splinePoints} />
         <TrackMesh splinePoints={splinePoints} trackConfig={trackConfig} />
       </Canvas>
 

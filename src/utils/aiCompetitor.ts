@@ -476,7 +476,7 @@ export function updateAICompetitor(params: AIUpdateParams): {
     splinePoints
   );
   const aiSurfacePoint = aiNextSample.point || nearestP;
-  const align = computeVehicleSurfaceAlignment(newPosX, newPosZ, newYaw, aiSurfacePoint, 0.14);
+  const align = computeVehicleSurfaceAlignment(newPosX, newPosZ, newYaw, aiSurfacePoint, 0.14, splinePoints);
   const newPosY = Math.abs(aiState.position.y - align.surfaceY) > 1.0
     ? align.surfaceY
     : aiState.position.y + (align.surfaceY - aiState.position.y) * Math.min(1.0, dt * 55.0);

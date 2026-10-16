@@ -2,6 +2,7 @@ import * as THREE from 'three';
 import { CarState, SplinePoint, TrackConfig } from '../types/track';
 import { getNearestSplinePoint, getTrackSpawnTransform } from './spline';
 import { CAR_PRESETS, CarSpecs, DEFAULT_PLAYER_CAR_ID } from './carPresets';
+import { getTerrainHeight } from './terrain';
 
 export interface CarControlInputs {
   throttle: boolean; // Accelerate W / Up
@@ -56,7 +57,8 @@ export function computeVehicleSurfaceAlignment(
   posZ: number,
   headingYaw: number,
   nearestPoint: SplinePoint | null,
-  rideHeight: number = 0.14
+  rideHeight: number = 0.14,
+  splinePoints?: SplinePoint[]
 ): {
   surfaceY: number;
   pitch: number;
@@ -96,13 +98,17 @@ export function computeVehicleSurfaceAlignment(
 
   if (absLat > totalTrackMargin) {
     const excess = absLat - totalTrackMargin;
-    // Embankment slope smoothly blends down from elevated track edge to ground level (rideHeight)
     const elev = nearestPoint.position.y || 0;
-    const slopeW = Math.max(12.0, Math.abs(elev) * 2.2 + 8.0);
+    const slopeW = Math.max(16.0, Math.abs(elev) * 2.5 + 12.0);
     const slopeProgress = Math.min(1.0, excess / slopeW);
-    // Smooth hermite ease down to natural ground level
     const tEase = slopeProgress * slopeProgress * (3 - 2 * slopeProgress);
-    surfaceY = (1 - tEase) * surfaceY + tEase * rideHeight;
+
+    // Off-track height matches the true 3D conforming terrain elevation
+    const naturalGroundY = splinePoints && splinePoints.length > 0
+      ? getTerrainHeight(posX, posZ, splinePoints) + rideHeight
+      : rideHeight;
+
+    surfaceY = (1 - tEase) * surfaceY + tEase * naturalGroundY;
   }
 
   // Heading vector along horizontal plane
@@ -341,7 +347,8 @@ export function updateCarPhysics(
     nextPosZ,
     newYaw,
     activeSurfacePoint,
-    0.14
+    0.14,
+    splinePoints
   );
 
   // Snappy suspension: tracks road surface firmly with zero dipping beneath asphalt

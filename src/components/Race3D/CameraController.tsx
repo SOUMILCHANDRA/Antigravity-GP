@@ -20,26 +20,29 @@ export const CameraController: React.FC<CameraControllerProps> = ({ carState }) 
     const py = isNaN(carState.position.y) ? 0.1 : carState.position.y;
     const pz = isNaN(carState.position.z) ? 0 : carState.position.z;
 
-    const carPos = new THREE.Vector3(px, py + 0.4, pz);
+    const carPos = new THREE.Vector3(px, py + 0.35, pz);
 
-    // Phase 5 & 11: Single authoritative forward vector convention
     const yaw = isNaN(carState.rotation.y) ? 0 : carState.rotation.y;
+    const pitch = isNaN(carState.rotation.x) ? 0 : carState.rotation.x;
     const forwardX = Math.sin(yaw);
     const forwardZ = Math.cos(yaw);
 
-    const distance = 9.8;
-    const height = 3.6;
-    const lookAhead = 6.5;
+    // Professional dynamic chase camera framing
+    const distance = 8.4;
+    const height = 2.35;
+    const lookAhead = 18.0;
 
+    // Follow vehicle pitch so camera tilts up hills (e.g. Eau Rouge / Raidillon)
+    const pitchSin = Math.sin(pitch);
     const targetCamPos = new THREE.Vector3(
       carPos.x - forwardX * distance,
-      carPos.y + height,
+      carPos.y + height - pitchSin * 1.8,
       carPos.z - forwardZ * distance
     );
 
     const targetLookAt = new THREE.Vector3(
       carPos.x + forwardX * lookAhead,
-      carPos.y + 0.5,
+      carPos.y + 0.45 + pitchSin * 8.5,
       carPos.z + forwardZ * lookAhead
     );
 
@@ -47,9 +50,18 @@ export const CameraController: React.FC<CameraControllerProps> = ({ carState }) 
     if (isNaN(targetCamPos.x) || isNaN(targetCamPos.y) || isNaN(targetCamPos.z)) return;
     if (isNaN(targetLookAt.x) || isNaN(targetLookAt.y) || isNaN(targetLookAt.z)) return;
 
-    // Phase 9: Snap immediately on initial spawn, mode change, or teleports (no lerping from world origin)
+    // Dynamic Speed FOV (58° at standstill, expanding up to 72° at 320+ km/h)
+    const perspectiveCam = camera as THREE.PerspectiveCamera;
+    if (perspectiveCam && perspectiveCam.isPerspectiveCamera) {
+      const speedKmh = isNaN(carState.speedKmh) ? 0 : Math.max(0, carState.speedKmh);
+      const targetFov = 58.0 + Math.min(14.0, (speedKmh / 320.0) * 14.0);
+      perspectiveCam.fov += (targetFov - perspectiveCam.fov) * Math.min(1.0, dt * 5.0);
+      perspectiveCam.updateProjectionMatrix();
+    }
+
+    // Snap immediately on initial spawn, mode change, or teleports
     const isFirstFrame = !currentPos.current || !currentLookAt.current;
-    const isTeleport = currentPos.current && currentPos.current.distanceTo(targetCamPos) > 25.0;
+    const isTeleport = currentPos.current && currentPos.current.distanceTo(targetCamPos) > 30.0;
 
     if (isFirstFrame || isTeleport || !currentPos.current || !currentLookAt.current) {
       currentPos.current = targetCamPos.clone();
@@ -59,11 +71,11 @@ export const CameraController: React.FC<CameraControllerProps> = ({ carState }) 
       return;
     }
 
-    // Subsequent gameplay frames: smooth tracking
+    // Smooth gameplay camera tracking with responsive pitch and yaw follow
     const pos = currentPos.current;
     const look = currentLookAt.current;
-    pos.lerp(targetCamPos, dt * 9.0);
-    look.lerp(targetLookAt, dt * 9.0);
+    pos.lerp(targetCamPos, dt * 10.0);
+    look.lerp(targetLookAt, dt * 10.0);
     camera.position.copy(pos);
     camera.lookAt(look);
   });

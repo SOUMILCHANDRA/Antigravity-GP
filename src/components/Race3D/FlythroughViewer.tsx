@@ -40,7 +40,7 @@ export const FlythroughViewer: React.FC<FlythroughViewerProps> = ({
           speedMultiplier={speedMultiplier}
           cameraMode={cameraMode}
         />
-        <Environment />
+        <Environment splinePoints={splinePoints} />
         <TrackMesh splinePoints={splinePoints} trackConfig={trackConfig} />
       </Canvas>
     </div>
