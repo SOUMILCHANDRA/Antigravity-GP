@@ -210,8 +210,6 @@ export const TrackMesh: React.FC<TrackMeshProps> = ({ splinePoints, trackConfig 
 
       // 6. Continuous Natural Terrain Embankment Hillside (Attached directly to track runoffs)
       const elev = p.elevation || 0;
-      const bermWidth = 12.0;
-      const slopeWidth = Math.max(35.0, Math.abs(elev) * 2.5 + 25.0);
 
       const rfxL_pos_x = rfxL_x + bUpX * gravelDip;
       const rfxL_pos_y = rfxL_y + bUpY * gravelDip;
@@ -221,25 +219,74 @@ export const TrackMesh: React.FC<TrackMeshProps> = ({ splinePoints, trackConfig 
       const rfxR_pos_y = rfxR_y + bUpY * gravelDip;
       const rfxR_pos_z = rfxR_z + bUpZ * gravelDip;
 
+      // Calculate local curve direction and radius to avoid self-intersection on inner corners
+      const prevP = splinePoints[(i - 1 + numPoints) % numPoints];
+      const nextP = splinePoints[(i + 1) % numPoints];
+      const dtanX = nextP.tangent.x - prevP.tangent.x;
+      const dtanZ = nextP.tangent.z - prevP.tangent.z;
+      const dDist = Math.hypot(nextP.position.x - prevP.position.x, nextP.position.z - prevP.position.z) || 1;
+      const curvMag = Math.hypot(dtanX, dtanZ) / dDist;
+      const localR = curvMag > 0.0003 ? (1 / curvMag) : 2500;
+
+      // Turning direction: > 0 means turning right, < 0 means turning left
+      const turnSign = p.tangent.x * dtanZ - p.tangent.z * dtanX;
+      const isTurnRight = turnSign > 0.0005;
+      const isTurnLeft = turnSign < -0.0005;
+
+      // Desired slope width based on elevation (natural ~1:2.2 grade down to ground level)
+      const baseSlopeW = Math.abs(elev) > 0.4 ? (Math.abs(elev) * 2.2 + 5.0) : 4.5;
+
+      // Safe clearance limits on inside curve so vertices never cross center of curvature
+      const totalTrackRadiusL = halfW + kerbWidth + gravelW;
+      const totalTrackRadiusR = halfW + kerbWidth + gravelW;
+
+      let shoulderWL = 4.0;
+      let slopeWL = baseSlopeW;
+
+      let shoulderWR = 4.0;
+      let slopeWR = baseSlopeW;
+
+      if (isTurnLeft) {
+        // Left is inside the turn: clamp inward extension to safe fraction of radius
+        const maxInsideClearance = Math.max(3.0, (localR - totalTrackRadiusL) * 0.65);
+        shoulderWL = Math.min(3.0, maxInsideClearance * 0.35);
+        slopeWL = Math.min(baseSlopeW, Math.max(1.5, maxInsideClearance - shoulderWL));
+        // Right is outside: expands smoothly
+        shoulderWR = 4.5;
+        slopeWR = Math.min(55.0, baseSlopeW);
+      } else if (isTurnRight) {
+        // Right is inside the turn: clamp inward extension
+        const maxInsideClearance = Math.max(3.0, (localR - totalTrackRadiusR) * 0.65);
+        shoulderWR = Math.min(3.0, maxInsideClearance * 0.35);
+        slopeWR = Math.min(baseSlopeW, Math.max(1.5, maxInsideClearance - shoulderWR));
+        // Left is outside: expands smoothly
+        shoulderWL = 4.5;
+        slopeWL = Math.min(55.0, baseSlopeW);
+      }
+
+      // Ground horizontal direction uses horizontal binormal
+      const hBinX = p.binormal.x;
+      const hBinZ = p.binormal.z;
+
       // Left grass shoulder berm
-      const bermLx = rfxL_pos_x - bLatX * bermWidth;
-      const bermLy = rfxL_pos_y - bLatY * bermWidth - bUpY * 0.15;
-      const bermLz = rfxL_pos_z - bLatZ * bermWidth;
+      const bermLx = rfxL_pos_x - hBinX * shoulderWL;
+      const bermLy = Math.max(-0.2, rfxL_pos_y - 0.25);
+      const bermLz = rfxL_pos_z - hBinZ * shoulderWL;
 
       // Left ground slope toe
-      const toeLx = bermLx - bLatX * slopeWidth;
+      const toeLx = bermLx - hBinX * slopeWL;
       const toeLy = -0.2;
-      const toeLz = bermLz - bLatZ * slopeWidth;
+      const toeLz = bermLz - hBinZ * slopeWL;
 
       // Right grass shoulder berm
-      const bermRx = rfxR_pos_x + bLatX * bermWidth;
-      const bermRy = rfxR_pos_y + bLatY * bermWidth - bUpY * 0.15;
-      const bermRz = rfxR_pos_z + bLatZ * bermWidth;
+      const bermRx = rfxR_pos_x + hBinX * shoulderWR;
+      const bermRy = Math.max(-0.2, rfxR_pos_y - 0.25);
+      const bermRz = rfxR_pos_z + hBinZ * shoulderWR;
 
       // Right ground slope toe
-      const toeRx = bermRx + bLatX * slopeWidth;
+      const toeRx = bermRx + hBinX * slopeWR;
       const toeRy = -0.2;
-      const toeRz = bermRz + bLatZ * slopeWidth;
+      const toeRz = bermRz + hBinZ * slopeWR;
 
       embankmentVerts.push(
         rfxL_pos_x, rfxL_pos_y, rfxL_pos_z,

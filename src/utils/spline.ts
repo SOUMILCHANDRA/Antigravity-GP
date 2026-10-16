@@ -144,7 +144,7 @@ export function estimateLapTime(lengthMeters: number, nodeCount: number): number
 }
 
 /**
- * Distance between car position and nearest point on spline using exact segment projection
+ * Distance between car position and nearest point on spline using continuous 3D segment projection
  */
 export function getNearestSplinePoint(
   carPos: { x: number; y: number; z: number },
@@ -163,7 +163,9 @@ export function getNearestSplinePoint(
 
   let minDistanceSq = Infinity;
   let bestIndex = 0;
+  let bestT = 0;
   let bestProjX = splinePoints[0].position.x;
+  let bestProjY = splinePoints[0].position.y;
   let bestProjZ = splinePoints[0].position.z;
 
   // Project carPos onto each spline segment [P_i, P_{i+1}]
@@ -182,40 +184,71 @@ export function getNearestSplinePoint(
     }
 
     const projX = p1.x + t * segX;
+    const projY = p1.y + t * (p2.y - p1.y);
     const projZ = p1.z + t * segZ;
 
     const dx = carPos.x - projX;
     const dz = carPos.z - projZ;
-    const distSq = dx * dx + dz * dz;
+    // Include vertical distance weighting so overpasses/crossovers don't latch onto lower/upper track
+    const dy = carPos.y !== undefined ? (carPos.y - projY) : 0;
+    const distSq = dx * dx + dz * dz + dy * dy * 0.45;
 
     if (distSq < minDistanceSq) {
       minDistanceSq = distSq;
       bestIndex = i;
+      bestT = t;
       bestProjX = projX;
+      bestProjY = projY;
       bestProjZ = projZ;
     }
   }
 
-  const nearestPoint = splinePoints[bestIndex];
-  const distance = Math.sqrt(minDistanceSq);
+  const sp1 = splinePoints[bestIndex];
+  const sp2 = splinePoints[(bestIndex + 1) % n];
 
-  // Signed track offset: determine which side of the track the car is on
-  const pNext = splinePoints[(bestIndex + 1) % n].position;
-  const tanX = pNext.x - nearestPoint.position.x;
-  const tanZ = pNext.z - nearestPoint.position.z;
+  // Continuous interpolation of tangent, binormal, and normal unit vectors
+  const tanX = sp1.tangent.x + bestT * (sp2.tangent.x - sp1.tangent.x);
+  const tanY = sp1.tangent.y + bestT * (sp2.tangent.y - sp1.tangent.y);
+  const tanZ = sp1.tangent.z + bestT * (sp2.tangent.z - sp1.tangent.z);
+  const tanLen = Math.hypot(tanX, tanY, tanZ) || 1;
+
+  const binX = sp1.binormal.x + bestT * (sp2.binormal.x - sp1.binormal.x);
+  const binY = sp1.binormal.y + bestT * (sp2.binormal.y - sp1.binormal.y);
+  const binZ = sp1.binormal.z + bestT * (sp2.binormal.z - sp1.binormal.z);
+  const binLen = Math.hypot(binX, binY, binZ) || 1;
+
+  const normX = sp1.normal.x + bestT * (sp2.normal.x - sp1.normal.x);
+  const normY = sp1.normal.y + bestT * (sp2.normal.y - sp1.normal.y);
+  const normZ = sp1.normal.z + bestT * (sp2.normal.z - sp1.normal.z);
+  const normLen = Math.hypot(normX, normY, normZ) || 1;
+
+  const interpPoint: SplinePoint = {
+    position: { x: bestProjX, y: bestProjY, z: bestProjZ },
+    tangent: { x: tanX / tanLen, y: tanY / tanLen, z: tanZ / tanLen },
+    binormal: { x: binX / binLen, y: binY / binLen, z: binZ / binLen },
+    normal: { x: normX / normLen, y: normY / normLen, z: normZ / normLen },
+    width: sp1.width + bestT * (sp2.width - sp1.width),
+    banking: sp1.banking + bestT * (sp2.banking - sp1.banking),
+    elevation: sp1.elevation + bestT * (sp2.elevation - sp1.elevation),
+    distance: sp1.distance + bestT * (sp2.distance >= sp1.distance ? (sp2.distance - sp1.distance) : 10),
+    runoffWidth: (sp1.runoffWidth ?? 8.5) + bestT * ((sp2.runoffWidth ?? 8.5) - (sp1.runoffWidth ?? 8.5)),
+    t: (bestIndex + bestT) / n
+  };
+
+  const horizDist = Math.hypot(carPos.x - bestProjX, carPos.z - bestProjZ);
+
+  // Signed lateral track offset based on interpolated binormal
   const toCarX = carPos.x - bestProjX;
   const toCarZ = carPos.z - bestProjZ;
-
-  // 2D cross product: tanX * toCarZ - tanZ * toCarX
-  const side = Math.sign(tanX * toCarZ - tanZ * toCarX);
-  const trackOffset = distance * (side || 1);
+  const side = Math.sign(interpPoint.binormal.x * toCarX + interpPoint.binormal.z * toCarZ);
+  const trackOffset = horizDist * (side || 1);
 
   return {
-    point: nearestPoint,
-    distance,
+    point: interpPoint,
+    distance: horizDist,
     trackOffset,
     nearestIndex: bestIndex,
-    segmentT: bestIndex / n
+    segmentT: (bestIndex + bestT) / n
   };
 }
 

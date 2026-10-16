@@ -88,16 +88,21 @@ export function computeVehicleSurfaceAlignment(
 
   let surfaceY = (nearestPoint.position.y || 0) + bLatY * latOffset + bUpY * rideHeight;
 
-  // Smooth terrain slope if off beyond runoff
+  // Smooth terrain slope transition ONLY if car leaves the runoff gravel bed entirely
   const halfW = (nearestPoint.width || 14) / 2;
   const runoffW = nearestPoint.runoffWidth || 8.5;
-  const totalTrackMargin = halfW + runoffW + 2.0;
+  const totalTrackMargin = halfW + runoffW + 1.0;
   const absLat = Math.abs(latOffset);
 
   if (absLat > totalTrackMargin) {
     const excess = absLat - totalTrackMargin;
-    const slopeFalloff = Math.max(0, 1.0 - excess / 50.0);
-    surfaceY = Math.max(0, surfaceY * slopeFalloff + 0.14);
+    // Embankment slope smoothly blends down from elevated track edge to ground level (rideHeight)
+    const elev = nearestPoint.position.y || 0;
+    const slopeW = Math.max(12.0, Math.abs(elev) * 2.2 + 8.0);
+    const slopeProgress = Math.min(1.0, excess / slopeW);
+    // Smooth hermite ease down to natural ground level
+    const tEase = slopeProgress * slopeProgress * (3 - 2 * slopeProgress);
+    surfaceY = (1 - tEase) * surfaceY + tEase * rideHeight;
   }
 
   // Heading vector along horizontal plane
@@ -323,17 +328,27 @@ export function updateCarPhysics(
   const nextPosX = curPosX + (isNaN(dx) ? 0 : dx);
   const nextPosZ = curPosZ + (isNaN(dz) ? 0 : dz);
 
+  // Sample continuous nearest spline point at the next vehicle position
+  const nextSample = getNearestSplinePoint(
+    { x: nextPosX, y: curPosY, z: nextPosZ },
+    splinePoints
+  );
+  const activeSurfacePoint = nextSample.point || nearestPoint;
+
   // Compute exact surface alignment (height, pitch, yaw, roll)
   const align = computeVehicleSurfaceAlignment(
     nextPosX,
     nextPosZ,
     newYaw,
-    nearestPoint,
+    activeSurfacePoint,
     0.14
   );
 
-  // Snappy suspension: tracks surface with high stability and zero lag penetration
-  const newY = curPosY + (align.surfaceY - curPosY) * Math.min(1.0, dt * 35.0);
+  // Snappy suspension: tracks road surface firmly with zero dipping beneath asphalt
+  const snapFactor = (isOnTrack || isOnKerb) ? Math.min(1.0, dt * 55.0) : Math.min(1.0, dt * 35.0);
+  const newY = Math.abs(curPosY - align.surfaceY) > 1.0
+    ? align.surfaceY
+    : curPosY + (align.surfaceY - curPosY) * snapFactor;
 
   const newSpeedKmh = Math.round(newSpeedMs * 3.6);
 

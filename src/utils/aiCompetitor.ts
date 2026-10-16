@@ -471,8 +471,15 @@ export function updateAICompetitor(params: AIUpdateParams): {
     newYaw = normalizeAngle(newYaw * 0.85 + tangentYaw * 0.15);
   }
 
-  const align = computeVehicleSurfaceAlignment(newPosX, newPosZ, newYaw, nearestP, 0.14);
-  const newPosY = aiState.position.y + (align.surfaceY - aiState.position.y) * Math.min(1.0, dt * 35.0);
+  const aiNextSample = getNearestSplinePoint(
+    { x: newPosX, y: aiState.position.y, z: newPosZ },
+    splinePoints
+  );
+  const aiSurfacePoint = aiNextSample.point || nearestP;
+  const align = computeVehicleSurfaceAlignment(newPosX, newPosZ, newYaw, aiSurfacePoint, 0.14);
+  const newPosY = Math.abs(aiState.position.y - align.surfaceY) > 1.0
+    ? align.surfaceY
+    : aiState.position.y + (align.surfaceY - aiState.position.y) * Math.min(1.0, dt * 55.0);
 
   // 11. Sector & Finish Line Tracking
   const startP = splinePoints[0];
