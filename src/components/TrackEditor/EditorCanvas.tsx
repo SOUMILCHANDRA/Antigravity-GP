@@ -70,6 +70,7 @@ export const EditorCanvas: React.FC<EditorCanvasProps> = ({
 
   // Context menu position
   const [contextMenu, setContextMenu] = useState<{ x: number; y: number; nodeId: string } | null>(null);
+  const [emptyPromptDismissed, setEmptyPromptDismissed] = useState(false);
 
   // Map underlay image element cache
   const underlayImgRef = useRef<HTMLImageElement | null>(null);
@@ -971,14 +972,22 @@ export const EditorCanvas: React.FC<EditorCanvasProps> = ({
       )}
 
       {/* Empty State Prompt */}
-      {track.nodes.length === 0 && (
+      {track.nodes.length === 0 && !emptyPromptDismissed && (
         <div className="absolute inset-0 flex flex-col items-center justify-center pointer-events-none text-center p-6">
           <div className="empty-studio-card pointer-events-auto">
             <div className="empty-card-topline"><span className="empty-mark"><Shapes size={17} /></span><span>NEW CIRCUIT PROJECT</span><span className="empty-rule" /></div>
             <h2>Start with the shape<br />of your next circuit.</h2>
             <p>Plot a layout from scratch, trace a real venue, or open a championship template and make it yours.</p>
             <div className="empty-actions">
-              <button className="empty-primary" onClick={() => setActiveTool('draw')}><Plus size={15} /> Draw on canvas</button>
+              <button
+                className="empty-primary"
+                onClick={() => {
+                  setActiveTool('draw');
+                  setEmptyPromptDismissed(true);
+                }}
+              >
+                <Plus size={15} /> Draw on canvas
+              </button>
               <button className="empty-secondary" onClick={onOpenPresets}><Shapes size={15} /> Browse templates <ArrowUpRight size={13} /></button>
               <button className="empty-secondary" onClick={onOpenUnderlay}><ImageIcon size={15} /> Trace a map <ArrowUpRight size={13} /></button>
             </div>
