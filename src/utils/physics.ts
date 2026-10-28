@@ -86,7 +86,13 @@ export function computeVehicleSurfaceAlignment(
   // Lateral distance from track centerline
   const toCarX = posX - nearestPoint.position.x;
   const toCarZ = posZ - nearestPoint.position.z;
-  const latOffset = toCarX * bLatX + toCarZ * bLatZ;
+  // bLat is a unit vector in 3D but shorter in the horizontal plane when the
+  // road is banked. Recover the true cross-section distance before applying
+  // bLatY, otherwise the car is placed too low on the downhill side of corners.
+  const horizontalLatLengthSq = bLatX * bLatX + bLatZ * bLatZ;
+  const latOffset = horizontalLatLengthSq > 1e-6
+    ? (toCarX * bLatX + toCarZ * bLatZ) / horizontalLatLengthSq
+    : 0;
 
   let surfaceY = (nearestPoint.position.y || 0) + bLatY * latOffset + bUpY * rideHeight;
 

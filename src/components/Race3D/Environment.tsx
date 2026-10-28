@@ -35,7 +35,9 @@ export const Environment: React.FC<EnvironmentProps> = ({ splinePoints = [] }) =
     const originX = minX - margin;
     const originZ = minZ - margin;
 
-    const segs = 70;
+    // A denser grid follows the banked track bed and rolling terrain closely
+    // enough to avoid broad triangles cutting through the asphalt/runoff.
+    const segs = 120;
     const geom = new THREE.PlaneGeometry(spanX, spanZ, segs, segs);
     geom.rotateX(-Math.PI / 2);
 

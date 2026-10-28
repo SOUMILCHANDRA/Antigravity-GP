@@ -25,6 +25,11 @@ export function getTerrainHeight(
   let nearestY = 0;
   let nearestWidth = 14;
   let nearestRunoff = 8.5;
+  let nearestBank = 0;
+  let nearestBinormal = new THREE.Vector3(1, 0, 0);
+  let nearestNormal = new THREE.Vector3(0, 1, 0);
+  let nearestCenterX = 0;
+  let nearestCenterZ = 0;
 
   const n = splinePoints.length;
   for (let i = 0; i < n; i++) {
@@ -46,17 +51,45 @@ export function getTerrainHeight(
     if (distSq < minHorizDistSq) {
       minHorizDistSq = distSq;
       nearestY = p1.y + t * (p2.y - p1.y);
-      nearestWidth = splinePoints[i].width;
-      nearestRunoff = splinePoints[i].runoffWidth || 8.5;
+      nearestCenterX = projX;
+      nearestCenterZ = projZ;
+      nearestWidth = splinePoints[i].width + t * (splinePoints[(i + 1) % n].width - splinePoints[i].width);
+      const runoff1 = splinePoints[i].runoffWidth || 8.5;
+      const runoff2 = splinePoints[(i + 1) % n].runoffWidth || 8.5;
+      nearestRunoff = runoff1 + t * (runoff2 - runoff1);
+      nearestBank = splinePoints[i].banking + t * (splinePoints[(i + 1) % n].banking - splinePoints[i].banking);
+      nearestBinormal = new THREE.Vector3(
+        splinePoints[i].binormal.x + t * (splinePoints[(i + 1) % n].binormal.x - splinePoints[i].binormal.x),
+        splinePoints[i].binormal.y + t * (splinePoints[(i + 1) % n].binormal.y - splinePoints[i].binormal.y),
+        splinePoints[i].binormal.z + t * (splinePoints[(i + 1) % n].binormal.z - splinePoints[i].binormal.z)
+      ).normalize();
+      nearestNormal = new THREE.Vector3(
+        splinePoints[i].normal.x + t * (splinePoints[(i + 1) % n].normal.x - splinePoints[i].normal.x),
+        splinePoints[i].normal.y + t * (splinePoints[(i + 1) % n].normal.y - splinePoints[i].normal.y),
+        splinePoints[i].normal.z + t * (splinePoints[(i + 1) % n].normal.z - splinePoints[i].normal.z)
+      ).normalize();
     }
   }
 
   const dist = Math.sqrt(minHorizDistSq);
   const trackCorridor = nearestWidth / 2 + nearestRunoff + 2.0;
 
-  // 3. Directly under or adjacent to track ribbon: match track elevation
+  // Track and runoff are banked surfaces. Project the horizontal distance back
+  // onto the 3D cross-track vector so terrain height matches the actual ribbon.
+  const bankRad = nearestBank * (Math.PI / 180);
+  const bLat = nearestBinormal.clone().multiplyScalar(Math.cos(bankRad))
+    .addScaledVector(nearestNormal, Math.sin(bankRad));
+  const horizontalLengthSq = bLat.x * bLat.x + bLat.z * bLat.z;
+  const lateralOffset = horizontalLengthSq > 1e-6
+    ? ((x - nearestCenterX) * bLat.x + (z - nearestCenterZ) * bLat.z) / horizontalLengthSq
+    : 0;
+
+  // 3. Keep terrain just below the banked track and runoff ribbon. The small
+  // clearance prevents z-fighting while preserving the bank instead of burying
+  // the low edge beneath a flat strip of land.
   if (dist <= trackCorridor) {
-    return nearestY - 0.05;
+    const boundedOffset = THREE.MathUtils.clamp(lateralOffset, -trackCorridor, trackCorridor);
+    return nearestY + bLat.y * boundedOffset - 0.2;
   }
 
   // 4. Smooth natural rolling slope connecting track to ambient terrain
@@ -66,7 +99,8 @@ export function getTerrainHeight(
   // Hermite smoothstep for natural organic terrain roll
   const ease = t * t * (3 - 2 * t);
 
-  return (1 - ease) * (nearestY - 0.1) + ease * (ambientHill - 0.2);
+  const edgeY = nearestY + bLat.y * THREE.MathUtils.clamp(lateralOffset, -trackCorridor, trackCorridor) - 0.2;
+  return (1 - ease) * edgeY + ease * (ambientHill - 0.2);
 }
 
 /**
