@@ -102,7 +102,7 @@ export function addAutomaticGradeSeparation(points: SplinePoint[], closed = true
 
   // Where the procedural landscape rises well above a road, create a short
   // covered section as a tunnel. Reject tiny fragments to avoid tunnel flicker.
-  const covered = result.map((point) => getAmbientTerrainHeight(point.position.x, point.position.z) - point.position.y >= 5.5);
+  const covered = result.map((point) => getAmbientTerrainHeight(point.position.x, point.position.z) - point.position.y >= 6.5);
   const coveredRuns: number[][] = [];
   let run: number[] = [];
   for (let i = 0; i < covered.length * (closed ? 2 : 1); i++) {
@@ -117,7 +117,7 @@ export function addAutomaticGradeSeparation(points: SplinePoint[], closed = true
 
   for (const coveredRun of coveredRuns) {
     const runLength = coveredRun.length * sampleStep;
-    if (runLength >= 45) coveredRun.forEach((index) => { result[index].tunnel = true; });
+    if (runLength >= 100) coveredRun.forEach((index) => { result[index].tunnel = true; });
   }
 
   return result;
