@@ -275,8 +275,6 @@ export const TrackMesh: React.FC<TrackMeshProps> = ({ splinePoints, trackConfig 
       );
 
       // 6. Continuous Natural Terrain Embankment Hillside (Attached directly to track runoffs)
-      const elev = p.elevation || 0;
-
       const rfxL_pos_x = rfxL_x + bUpX * gravelDip;
       const rfxL_pos_y = rfxL_y + bUpY * gravelDip;
       const rfxL_pos_z = rfxL_z + bUpZ * gravelDip;
@@ -298,7 +296,11 @@ export const TrackMesh: React.FC<TrackMeshProps> = ({ splinePoints, trackConfig 
       const isTurnRight = turnSign > 0.0005;
       const isTurnLeft = turnSign < -0.0005;
 
-      const baseSlopeW = Math.abs(elev) > 0.4 ? (Math.abs(elev) * 2.2 + 5.0) : 4.5;
+      // Side-bank width follows the road's local grade, not its altitude above
+      // sea level. Scaling by absolute elevation made mountain circuits build
+      // embankments hundreds of metres wide that crossed and buried the road.
+      const localGrade = Math.abs(nextP.position.y - prevP.position.y) / dDist;
+      const baseSlopeW = THREE.MathUtils.clamp(4.5 + localGrade * 90, 4.5, 32);
       const totalTrackRadiusL = halfW + kerbWidth + gravelW;
       const totalTrackRadiusR = halfW + kerbWidth + gravelW;
 
