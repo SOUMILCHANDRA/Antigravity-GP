@@ -131,6 +131,7 @@ export function App() {
   const prevCarPosRef = useRef<{ x: number; z: number }>({ x: 0, z: 0 });
   const prevSplineIndexRef = useRef<number>(0);
   const hasPassedSector2Ref = useRef<boolean>(false);
+  const raceTimerStartedRef = useRef<boolean>(false);
   const [showLapModal, setShowLapModal] = useState<boolean>(false);
   const [lapToast, setLapToast] = useState<{ message: string; isBest: boolean } | null>(null);
   const INITIAL_LAP_TELEMETRY: LapTelemetry = {
@@ -363,6 +364,7 @@ export function App() {
   // Authoritative Car & AI Spawn & Reset
   const resetCarOnTrack = useCallback((resetAllTelemetry = false, pCarId = playerCarId, aCarId = aiCarId) => {
     clearAllInputs();
+    raceTimerStartedRef.current = false;
     if (splinePoints.length < 2) return;
 
     // Reset Player Car
@@ -571,6 +573,10 @@ export function App() {
       carStateRef.current = nextState;
       setCarState(nextState);
 
+      if (inputs.throttle || Math.abs(nextState.speedKmh) > 1) {
+        raceTimerStartedRef.current = true;
+      }
+
       const engineThrottle = nextState.throttle > 0 || (nextState.brake > 0 && nextState.speedKmh < 0);
       audioEngine.updateEngineSound(Math.abs(nextState.speedKmh), engineThrottle ? 1 : 0, true, playerCarId);
       audioEngine.updateTireSqueal(nextState.skidding);
@@ -659,7 +665,7 @@ export function App() {
         setLapTelemetry(prev => {
           const next = {
             ...prev,
-            currentLapTime: prev.currentLapTime + dt,
+            currentLapTime: raceTimerStartedRef.current ? prev.currentLapTime + dt : 0,
             maxSpeedKmh: Math.max(prev.maxSpeedKmh, Math.abs(nextState.speedKmh))
           };
           lapTelemetryRef.current = next;
@@ -946,7 +952,6 @@ export function App() {
               isOvertaking={aiCarState.isOvertaking}
               playerCarId={playerCarId}
               onOpenGarage={() => setShowGarageModal(true)}
-              carState={carState}
             />
             
             <Minimap

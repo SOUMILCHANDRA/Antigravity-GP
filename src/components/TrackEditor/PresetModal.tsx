@@ -60,11 +60,21 @@ export const PresetModal: React.FC<PresetModalProps> = ({
             return (
               <div
                 key={preset.id}
+                role="button"
+                tabIndex={0}
+                aria-label={`Load ${preset.name}`}
                 onClick={() => {
                   onSelectPreset(preset);
                   onClose();
                 }}
-                className="group relative bg-[#131927] hover:bg-[#182133] border border-[#20293D] hover:border-cyan-500/60 rounded-xl p-4 cursor-pointer transition-all flex flex-col justify-between shadow-lg hover:shadow-cyan-500/10"
+                onKeyDown={(event) => {
+                  if (event.key === 'Enter' || event.key === ' ') {
+                    event.preventDefault();
+                    onSelectPreset(preset);
+                    onClose();
+                  }
+                }}
+                className="group relative bg-[#131927] hover:bg-[#182133] border border-[#20293D] hover:border-cyan-500/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-400 rounded-xl p-4 cursor-pointer transition-all flex flex-col justify-between shadow-lg hover:shadow-cyan-500/10"
               >
                 <div>
                   <div className="flex items-start justify-between gap-2 mb-2">

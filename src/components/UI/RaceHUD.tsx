@@ -23,14 +23,6 @@ interface RaceHUDProps {
   isOvertaking?: boolean;
   playerCarId?: string;
   onOpenGarage?: () => void;
-  carState?: {
-    speedKmh: number;
-    throttle: number;
-    brake: number;
-    steering: number;
-    position: { x: number; y: number; z: number };
-    rotation: { x: number; y: number; z: number };
-  };
 }
 
 export const RaceHUD: React.FC<RaceHUDProps> = ({
@@ -50,8 +42,7 @@ export const RaceHUD: React.FC<RaceHUDProps> = ({
   isDrafting = false,
   isOvertaking = false,
   playerCarId = DEFAULT_PLAYER_CAR_ID,
-  onOpenGarage,
-  carState
+  onOpenGarage
 }) => {
   const isReverse = speedKmh < 0;
   const absSpeed = Math.abs(speedKmh);
@@ -252,28 +243,6 @@ export const RaceHUD: React.FC<RaceHUDProps> = ({
         </div>
       )}
 
-      {/* Phase 2: Authoritative Player Physics Debug Telemetry */}
-      {carState && (
-        <div className="bg-[#080C14]/95 backdrop-blur-md border border-cyan-500/40 rounded-2xl p-3 shadow-xl space-y-1 text-[11px] font-mono text-slate-300 min-w-[240px]">
-          <div className="text-[10px] font-bold text-cyan-400 border-b border-[#1E2638] pb-1 flex justify-between">
-            <span>PLAYER PHYSICS DEBUG</span>
-            <span className={aiEnabled ? 'text-amber-400' : 'text-emerald-400'}>
-              {aiEnabled ? 'AI: ON' : 'AI: OFF (ISOLATED)'}
-            </span>
-          </div>
-          <div className="grid grid-cols-2 gap-x-3 gap-y-0.5 pt-1 text-[10px]">
-            <div>Speed: <span className="font-bold text-white">{carState.speedKmh} km/h</span></div>
-            <div>SpdMs: <span className="font-bold text-white">{(carState.speedKmh / 3.6).toFixed(2)} m/s</span></div>
-            <div>Throttle: <span className="font-bold text-emerald-400">{carState.throttle.toFixed(2)}</span></div>
-            <div>Brake: <span className="font-bold text-red-400">{carState.brake.toFixed(2)}</span></div>
-            <div>Steer: <span className="font-bold text-white">{carState.steering.toFixed(2)}</span></div>
-            <div>Yaw: <span className="font-bold text-cyan-300">{carState.rotation.y.toFixed(3)} rad</span></div>
-            <div className="col-span-2 text-[9px] text-slate-400">
-              Pos: [{carState.position.x.toFixed(2)}, {carState.position.y.toFixed(2)}, {carState.position.z.toFixed(2)}]
-            </div>
-          </div>
-        </div>
-      )}
     </div>
   );
 };
