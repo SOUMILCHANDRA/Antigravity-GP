@@ -18,6 +18,26 @@ function sourcedNodes(key: keyof typeof REAL_CIRCUIT_GEOMETRY, prefix: string, w
   return nodes.map((node) => ({ ...node, x: (node.x - center.x) * scale, y: (node.y - center.y) * scale }));
 }
 
+function applyElevationProfile(nodes: TrackNode[], lapLength: number, markers: Array<[distance: number, altitude: number]>): TrackNode[] {
+  const distances = [0];
+  for (let i = 1; i < nodes.length; i++) {
+    distances.push(distances[i - 1] + Math.hypot(nodes[i].x - nodes[i - 1].x, nodes[i].y - nodes[i - 1].y));
+  }
+  const totalDistance = distances[distances.length - 1] + Math.hypot(nodes[0].x - nodes[nodes.length - 1].x, nodes[0].y - nodes[nodes.length - 1].y);
+  const profile = [...markers].sort((a, b) => a[0] - b[0]);
+
+  return nodes.map((node, index) => {
+    const lapDistance = (distances[index] / totalDistance) * lapLength;
+    let upper = profile.findIndex(([distance]) => distance >= lapDistance);
+    if (upper < 0) upper = profile.length - 1;
+    const lower = Math.max(0, upper - 1);
+    const [d0, h0] = profile[lower];
+    const [d1, h1] = profile[upper];
+    const t = d1 > d0 ? THREE.MathUtils.clamp((lapDistance - d0) / (d1 - d0), 0, 1) : 0;
+    return { ...node, elevation: h0 + (h1 - h0) * t - profile[0][1] };
+  });
+}
+
 export const EMPTY_TRACK: TrackConfig = {
   id: 'user-circuit',
   name: 'My Custom Circuit',
@@ -377,7 +397,17 @@ export const KARTING_CHAMPIONSHIP: TrackConfig = {
 
 // Real-world layouts use simplified map-derived centerlines at the published lap length.
 // Keep widths and elevation authored locally: the public centerline datasets contain plan view only.
-CIRCUIT_DE_SPA_FRANCORCHAMPS.nodes = sourcedNodes('spa', 'spa', 14.5, 7004);
+// Altitude markers from the Spa circuit map; store node heights relative to the 418 m start/finish line.
+CIRCUIT_DE_SPA_FRANCORCHAMPS.nodes = applyElevationProfile(
+  sourcedNodes('spa', 'spa', 14.5, 7004),
+  7004,
+  [
+    [0, 418], [220, 424], [310, 419], [690, 403], [850, 391], [1130, 415],
+    [1450, 446], [2200, 463], [2470, 470], [2870, 455], [3110, 438],
+    [3600, 402], [4280, 377], [4740, 375], [5100, 373], [5700, 388],
+    [6000, 398], [6540, 409], [7004, 418]
+  ]
+);
 MONACO_STREET_CIRCUIT.nodes = sourcedNodes('monaco', 'mc', 10.5, 3337);
 SUZUKA_FIGURE_EIGHT.nodes = sourcedNodes('suzuka', 'sz', 14, 5807, (index) => {
   // Elevate the back-straight crossing over the lower track; this is a road bridge, not an at-grade junction.
