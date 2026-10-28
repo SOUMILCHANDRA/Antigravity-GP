@@ -27,10 +27,10 @@ export const PresetModal: React.FC<PresetModalProps> = ({
             </div>
             <div>
               <h2 className="text-base font-bold text-slate-100 font-mono tracking-wide">
-                CIRCUIT ARCHITECTURES & PRESETS
+                CIRCUIT PRESETS
               </h2>
               <p className="text-xs text-slate-400">
-                Choose a world-class motorsport layout archetype to design, customize, or race.
+                Map-derived circuit layouts, ready to customize or race.
               </p>
             </div>
           </div>
@@ -87,14 +87,16 @@ export const PresetModal: React.FC<PresetModalProps> = ({
                   </div>
 
                   <p className="text-xs text-slate-400 mb-3 line-clamp-2">
-                    {preset.id === 'preset-tri-oval' && 'High-speed 3-turn superspeedway with massive 22° banking and full-throttle slipstream racing.'}
-                    {preset.id === 'preset-gp-international' && 'Championship Grand Prix layout featuring high-speed Senna-S, hairpin braking zones, and long straights.'}
-                    {preset.id === 'preset-monaco-street' && 'Tight, barriers-lined street circuit with technical hairpin, tunnel, and zero room for error.'}
-                    {preset.id === 'preset-suzuka-figure8' && 'The legendary crossover 3D figure-8 layout featuring Esses, Degner corners, Spoon curve, and flat-out 130R.'}
-                    {preset.id === 'preset-bathurst-mountain' && 'Extreme mountain climb and steep Dipper downhill drop with a staggering 45-meter elevation delta.'}
-                    {preset.id === 'preset-technical-arena' && 'Rhythm-intensive technical stadium circuit with rapid elevation changes and varied corner radiuses.'}
-                    {preset.id === 'preset-roval-course' && 'Combined 24° high-bank oval transitions with an intricate twisty infield road course.'}
-                    {preset.id === 'preset-karting-championship' && 'Ultra-responsive, high-cadence short circuit designed for wheel-to-wheel karting battles.'}
+                    {preset.id === 'preset-spa-francorchamps' && 'Belgian Grand Prix layout · 7.004 km · map-derived centerline.'}
+                    {preset.id === 'preset-monaco-street' && 'Monaco Grand Prix street layout · 3.337 km · map-derived centerline.'}
+                    {preset.id === 'preset-suzuka-figure8' && 'Japanese Grand Prix layout · 5.807 km · includes the elevated crossover bridge.'}
+                    {preset.id === 'preset-monza-temple-of-speed' && 'Italian Grand Prix layout · 5.793 km · map-derived centerline.'}
+                    {preset.id === 'preset-gp-international' && 'São Paulo Grand Prix at Interlagos · 4.309 km · map-derived centerline.'}
+                    {preset.id === 'preset-tri-oval' && 'Daytona tri-oval · 2.5 mi · locally authored shape scaled to the published lap distance.'}
+                    {preset.id === 'preset-bathurst-mountain' && 'Mount Panorama · 6.213 km · anticlockwise layout with an authored mountain elevation profile.'}
+                    {preset.id === 'preset-technical-arena' && 'Hungaroring · 4.381 km · map-derived centerline.'}
+                    {preset.id === 'preset-roval-course' && 'Charlotte Motor Speedway Roval · 2.28 mi · map-derived centerline.'}
+                    {preset.id === 'preset-karting-championship' && 'Original Antigravity GP karting test layout.'}
                   </p>
                 </div>
 

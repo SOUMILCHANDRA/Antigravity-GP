@@ -1,4 +1,22 @@
 import { TrackConfig, TrackNode } from '../types/track';
+import * as THREE from 'three';
+import { REAL_CIRCUIT_GEOMETRY } from './realCircuitGeometry';
+
+function sourcedNodes(key: keyof typeof REAL_CIRCUIT_GEOMETRY, prefix: string, width: number, targetLength: number, elevation?: (index: number, count: number) => number): TrackNode[] {
+  const points = REAL_CIRCUIT_GEOMETRY[key];
+  const nodes = points.map(([x, y], index) => ({
+    id: `${prefix}-${index + 1}`,
+    x,
+    y,
+    elevation: elevation?.(index, points.length) ?? 0,
+    width,
+    banking: 0
+  }));
+  const curve = new THREE.CatmullRomCurve3(nodes.map((node) => new THREE.Vector3(node.x, 0, node.y)), true, 'catmullrom', 0.5);
+  const scale = targetLength / curve.getLength();
+  const center = nodes.reduce((sum, node) => ({ x: sum.x + node.x / nodes.length, y: sum.y + node.y / nodes.length }), { x: 0, y: 0 });
+  return nodes.map((node) => ({ ...node, x: (node.x - center.x) * scale, y: (node.y - center.y) * scale }));
+}
 
 export const EMPTY_TRACK: TrackConfig = {
   id: 'user-circuit',
@@ -22,7 +40,7 @@ export const GRAND_PRIX_INTERNATIONAL: TrackConfig = {
     curbStyle: 'red_white',
     asphaltStyle: 'modern_f1',
     runoffStyle: 'gravel_trap',
-    sponsorName: 'GRANDE PRÊMIO DO BRASIL'
+    sponsorName: 'SÃO PAULO GRAND PRIX'
   },
   nodes: [
     { id: 'gp-1', x: -340, y: 150, elevation: 2, width: 15, banking: 2, cornerName: 'Reta dos Boxes' },
@@ -99,7 +117,7 @@ export const CIRCUIT_DE_SPA_FRANCORCHAMPS: TrackConfig = {
     curbStyle: 'red_white',
     asphaltStyle: 'modern_f1',
     runoffStyle: 'gravel_trap',
-    sponsorName: 'ROLEX BELGIAN GRAND PRIX'
+    sponsorName: 'BELGIAN GRAND PRIX'
   },
   nodes: [
     { id: 'spa-1', x: -40, y: 520, elevation: 0, width: 15.5, banking: 0, cornerName: 'Start / Finish Straight' },
@@ -210,7 +228,7 @@ export const AUTODROMO_NAZIONALE_MONZA: TrackConfig = {
     curbStyle: 'monza_black_yellow',
     asphaltStyle: 'modern_f1',
     runoffStyle: 'gravel_trap',
-    sponsorName: 'GRAN PREMIO D’ITALIA'
+    sponsorName: 'ITALIAN GRAND PRIX'
   },
   nodes: [
     { id: 'mz-1', x: -280, y: 180, elevation: 0, width: 15, banking: 0, cornerName: 'Rettifilo Tribune (Start/Finish)' },
@@ -244,7 +262,7 @@ export const MOUNT_PANORAMA_HILLCLIMB: TrackConfig = {
     curbStyle: 'green_white',
     asphaltStyle: 'classic_weathered',
     runoffStyle: 'gravel_trap',
-    sponsorName: 'REPACO BATHURST 1000'
+    sponsorName: 'BATHURST 1000'
   },
   nodes: [
     { id: 'bt-1', x: -340, y: 140, elevation: 0, width: 14, banking: 0, cornerName: 'Pit Straight' },
@@ -310,7 +328,7 @@ export const ROVAL_ROAD_COURSE: TrackConfig = {
     curbStyle: 'blue_yellow',
     asphaltStyle: 'modern_f1',
     runoffStyle: 'asphalt_stripes',
-    sponsorName: 'BANK OF AMERICA ROVAL'
+    sponsorName: 'CHARLOTTE ROVAL'
   },
   nodes: [
     { id: 'rv-1', x: -180, y: 180, elevation: 0, width: 17, banking: 3, cornerName: 'Oval Start / Finish' },
@@ -356,6 +374,42 @@ export const KARTING_CHAMPIONSHIP: TrackConfig = {
     { id: 'kt-9', x: -140, y: -10, elevation: 0, width: 9, banking: 2, cornerName: 'Turn 8 Final Sweeper' }
   ]
 };
+
+// Real-world layouts use simplified map-derived centerlines at the published lap length.
+// Keep widths and elevation authored locally: the public centerline datasets contain plan view only.
+CIRCUIT_DE_SPA_FRANCORCHAMPS.nodes = sourcedNodes('spa', 'spa', 14.5, 7004);
+MONACO_STREET_CIRCUIT.nodes = sourcedNodes('monaco', 'mc', 10.5, 3337);
+SUZUKA_FIGURE_EIGHT.nodes = sourcedNodes('suzuka', 'sz', 14, 5807, (index) => {
+  // Elevate the back-straight crossing over the lower track; this is a road bridge, not an at-grade junction.
+  return ({ 42: 0, 43: 3, 44: 10, 45: 7, 46: 2 } as Record<number, number>)[index] ?? 0;
+});
+AUTODROMO_NAZIONALE_MONZA.nodes = sourcedNodes('monza', 'mz', 14, 5793);
+GRAND_PRIX_INTERNATIONAL.nodes = sourcedNodes('interlagos', 'gp', 14, 4309);
+TECHNICAL_ARENA.name = 'Hungaroring (Mogyoród)';
+TECHNICAL_ARENA.dressing = { curbStyle: 'monza_black_yellow', asphaltStyle: 'modern_f1', runoffStyle: 'asphalt_stripes', sponsorName: 'FORMULA 1 HUNGARIAN GRAND PRIX' };
+TECHNICAL_ARENA.nodes = sourcedNodes('hungaroring', 'hu', 13, 4381);
+MOUNT_PANORAMA_HILLCLIMB.nodes = sourcedNodes('bathurst', 'bt', 12, 6213, (index, count) => {
+  // The climb peaks across the mountain section, then descends to the start/finish straight.
+  const t = index / count;
+  if (t < 0.34) return Math.round(174 * Math.sin((t / 0.34) * Math.PI / 2));
+  if (t < 0.48) return 174;
+  if (t < 0.74) return Math.round(174 * (1 - (t - 0.48) / 0.26));
+  return 0;
+});
+ROVAL_ROAD_COURSE.nodes = sourcedNodes('charlotteRoval', 'rv', 14, 3669);
+KARTING_CHAMPIONSHIP.name = 'Karting Test Circuit (Original Layout)';
+KARTING_CHAMPIONSHIP.dressing = { curbStyle: 'red_white', asphaltStyle: 'modern_f1', runoffStyle: 'grass_verge', sponsorName: 'ANTIGRAVITY GP' };
+SUZUKA_FIGURE_EIGHT.crossingType = 'bridge';
+
+// The hand-authored Daytona tri-oval is retained, but brought up to its 2.5 mi published length.
+const daytonaCurve = new THREE.CatmullRomCurve3(TRI_OVAL_SUPERSPEEDWAY.nodes.map((node) => new THREE.Vector3(node.x, 0, node.y)), true, 'catmullrom', 0.5);
+const daytonaLength = daytonaCurve.getLength();
+const daytonaScale = 4023.36 / daytonaLength;
+TRI_OVAL_SUPERSPEEDWAY.nodes = TRI_OVAL_SUPERSPEEDWAY.nodes.map((node) => ({
+  ...node,
+  x: node.x * daytonaScale,
+  y: node.y * daytonaScale
+}));
 
 export const CIRCUIT_PRESETS: TrackConfig[] = [
   CIRCUIT_DE_SPA_FRANCORCHAMPS,

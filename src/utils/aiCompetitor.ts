@@ -220,13 +220,10 @@ export function updateAICompetitor(params: AIUpdateParams): {
     splinePoints
   );
 
-  // Prevent wrap-around to the end of the track when AI is near the start line
-  const startP0 = splinePoints[0];
-  const distFromStart0 = startP0 ? Math.hypot(aiState.position.x - startP0.position.x, aiState.position.z - startP0.position.z) : 0;
-  let nearestIndex = rawNearestIndex;
-  if (distFromStart0 < 25.0 && rawNearestIndex > n - 25) {
-    nearestIndex = 0;
-  }
+  // Keep the real nearest point through the start/finish. Lookahead already
+  // wraps modulo the spline length; forcing this index to zero makes the AI
+  // aim backward at the grid and get trapped against its lateral boundary.
+  const nearestIndex = rawNearestIndex;
 
   const nearestP = nearestSplinePoint || splinePoints[nearestIndex];
   const roadWidth = nearestP.width || 14;

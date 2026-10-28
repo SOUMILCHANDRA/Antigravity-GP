@@ -47,6 +47,10 @@ Exports include circuit **JSON**, a technical **SVG** blueprint, and a high-reso
 
 Launch a circuit from the studio to race in the browser. The game includes a 3D car and circuit scene, keyboard driving controls, selectable historic cars, lap timing and results, an AI competitor with difficulty settings, racing-line guidance, minimap, sound, and chase/cockpit/top-down camera options.
 
+## Circuit presets and attribution
+
+The Spa, Monaco, Suzuka, Monza, Interlagos, and Hungaroring presets use simplified centerlines derived from the public [F1 Circuits GeoJSON dataset](https://github.com/bacinger/f1-circuits). Bathurst and Charlotte Roval use simplified paths from [Global Motorsport Circuits JSON](https://github.com/GameDev-Toolkit/global-motorsport-circuits-json). Their paths are scaled to published lap distances; elevation is authored separately, so these are useful layout references rather than survey-grade or official simulator data. Daytona retains an original hand-authored tri-oval scaled to its published 2.5-mile distance, and the karting preset is an original Antigravity GP layout. See [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md) for source and license details.
+
 ## Technology
 
 - React, TypeScript, and Vite
