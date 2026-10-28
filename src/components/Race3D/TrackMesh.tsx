@@ -86,6 +86,50 @@ interface TrackMeshProps {
   trackConfig: TrackConfig;
 }
 
+function createTunnelShell(splinePoints: SplinePoint[]): THREE.BufferGeometry | null {
+  if (splinePoints.length < 2 || !splinePoints.some((point) => point.tunnel)) return null;
+
+  const sections = 9;
+  const vertices: number[] = [];
+  const indices: number[] = [];
+  const pointCount = splinePoints.length;
+
+  for (const point of splinePoints) {
+    const radius = point.width / 2 + 1.5;
+    for (let section = 0; section < sections; section++) {
+      const across = (section / (sections - 1)) * 2 - 1;
+      const lateral = across * radius;
+      const arch = 2.0 + 2.6 * Math.sqrt(Math.max(0, 1 - across * across));
+      vertices.push(
+        point.position.x + point.binormal.x * lateral + point.normal.x * arch,
+        point.position.y + point.binormal.y * lateral + point.normal.y * arch,
+        point.position.z + point.binormal.z * lateral + point.normal.z * arch
+      );
+    }
+  }
+
+  const pairCount = pointCount - 1;
+  for (let i = 0; i < pairCount; i++) {
+    if (!splinePoints[i].tunnel || !splinePoints[i + 1].tunnel) continue;
+    const row = i * sections;
+    const nextRow = (i + 1) * sections;
+    for (let section = 0; section < sections - 1; section++) {
+      const a = row + section;
+      const b = nextRow + section;
+      const c = nextRow + section + 1;
+      const d = row + section + 1;
+      indices.push(a, b, d, b, c, d);
+    }
+  }
+
+  if (indices.length === 0) return null;
+  const geometry = new THREE.BufferGeometry();
+  geometry.setAttribute('position', new THREE.Float32BufferAttribute(vertices, 3));
+  geometry.setIndex(indices);
+  geometry.computeVertexNormals();
+  return geometry;
+}
+
 export const TrackMesh: React.FC<TrackMeshProps> = ({ splinePoints, trackConfig }) => {
   const dressing = trackConfig.dressing;
   const pitLane = trackConfig.pitLane;
@@ -100,6 +144,7 @@ export const TrackMesh: React.FC<TrackMeshProps> = ({ splinePoints, trackConfig 
     rightRunoffGeom,
     armcoGeom,
     embankmentGeom,
+    tunnelGeom,
     pitLaneGeom,
     pitWallGeom
   } = useMemo(() => {
@@ -113,6 +158,7 @@ export const TrackMesh: React.FC<TrackMeshProps> = ({ splinePoints, trackConfig 
         rightRunoffGeom: null,
         armcoGeom: null,
         embankmentGeom: null,
+        tunnelGeom: null,
         pitLaneGeom: null,
         pitWallGeom: null
       };
@@ -441,6 +487,8 @@ export const TrackMesh: React.FC<TrackMeshProps> = ({ splinePoints, trackConfig 
     embGeom.setIndex(embankmentIndices);
     embGeom.computeVertexNormals();
 
+    const tunnel = createTunnelShell(splinePoints);
+
     // 7. Pit Lane Road & Concrete Pit Wall Geometry (if enabled)
     let pLaneGeom: THREE.BufferGeometry | null = null;
     let pWallGeom: THREE.BufferGeometry | null = null;
@@ -528,6 +576,7 @@ export const TrackMesh: React.FC<TrackMeshProps> = ({ splinePoints, trackConfig 
       rightRunoffGeom: rroGeom,
       armcoGeom: armGeom,
       embankmentGeom: embGeom,
+      tunnelGeom: tunnel,
       pitLaneGeom: pLaneGeom,
       pitWallGeom: pWallGeom
     };
@@ -639,6 +688,13 @@ export const TrackMesh: React.FC<TrackMeshProps> = ({ splinePoints, trackConfig 
             metalness={asphaltProps.metalness}
             side={THREE.DoubleSide}
           />
+        </mesh>
+      )}
+
+      {/* Automatic tunnel lining for underpasses and roads passing beneath hills */}
+      {tunnelGeom && (
+        <mesh geometry={tunnelGeom} receiveShadow castShadow>
+          <meshStandardMaterial color="#34343A" roughness={0.94} metalness={0.02} side={THREE.DoubleSide} />
         </mesh>
       )}
 

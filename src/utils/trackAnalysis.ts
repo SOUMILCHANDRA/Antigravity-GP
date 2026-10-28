@@ -248,7 +248,7 @@ export function validateTrackGeometry(track: TrackConfig, splinePoints: SplinePo
         if (checkLineSegmentsIntersect(p1, p2, p3, p4)) {
           issues.push({
             type: 'warning',
-            message: `Track self-intersects between segments [${i + 1}-${((i + 1) % n) + 1}] and [${j + 1}-${((j + 1) % n) + 1}]. Add a bridge or adjust layout.`,
+            message: `Track self-intersects between segments [${i + 1}-${((i + 1) % n) + 1}] and [${j + 1}-${((j + 1) % n) + 1}]. Race view automatically separates this crossing with an overpass and underpass tunnel.`,
             nodeIndex: i,
             nodeId: p1.id
           });

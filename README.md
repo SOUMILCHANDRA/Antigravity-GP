@@ -45,7 +45,7 @@ Exports include circuit **JSON**, a technical **SVG** blueprint, and a high-reso
 
 ## Drive mode
 
-Launch a circuit from the studio to race in the browser. The game includes a 3D car and circuit scene, keyboard driving controls, selectable historic cars, lap timing and results, an AI competitor with difficulty settings, racing-line guidance, minimap, sound, and chase/cockpit/top-down camera options.
+Launch a circuit from the studio to race in the browser. Flat self-crossings are automatically grade-separated with an overpass and a covered underpass, and road sections beneath generated hills receive tunnel lining. The game also includes a 3D car and circuit scene, keyboard driving controls, selectable historic cars, lap timing and results, an AI competitor with difficulty settings, racing-line guidance, minimap, sound, and chase/cockpit/top-down camera options.
 
 ## Circuit presets and attribution
 

@@ -95,6 +95,8 @@ export interface SplinePoint {
   binormal: Vector3D;
   width: number;
   elevation: number;
+  /** Automatically generated road cover for underpasses or terrain tunnels. */
+  tunnel?: boolean;
   banking: number;        // in degrees (-20 to 25)
   runoffWidth: number;    // in meters
   t: number;          // normalized distance [0..1]

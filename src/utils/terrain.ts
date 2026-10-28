@@ -6,6 +6,13 @@ import { SplinePoint } from '../types/track';
  * Computes exact natural continuous ground elevation at any (x, z)
  * across the circuit venue, forming realistic rolling hills, valleys, and plateaus.
  */
+export function getAmbientTerrainHeight(x: number, z: number): number {
+  return (
+    Math.sin(x * 0.003) * Math.cos(z * 0.003) * 5.0 +
+    Math.sin(x * 0.009 + 1.5) * 2.5
+  );
+}
+
 export function getTerrainHeight(
   x: number,
   z: number,
@@ -15,10 +22,7 @@ export function getTerrainHeight(
     return -0.2;
   }
 
-  // 1. Natural ambient rolling landscape (distant Ardennes / mountain swells)
-  const ambientHill =
-    Math.sin(x * 0.003) * Math.cos(z * 0.003) * 5.0 +
-    Math.sin(x * 0.009 + 1.5) * 2.5;
+  const ambientHill = getAmbientTerrainHeight(x, z);
 
   // 2. Find nearest track centerline segment and distance
   let minHorizDistSq = Infinity;

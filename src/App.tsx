@@ -2,6 +2,7 @@ import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react'
 import { AppMode, CarState, LapTelemetry, TrackConfig, TrackNode, AICompetitorState, RaceBattleState, AIDifficulty, EditorTool, StudioStage, EditorViewMode } from './types/track';
 import { EMPTY_TRACK } from './utils/presets';
 import { buildTrackCurve, sampleSplinePoints, getNearestSplinePoint, checkFinishLineCrossing } from './utils/spline';
+import { addAutomaticGradeSeparation } from './utils/gradeSeparation';
 import { createInitialCarState, updateCarPhysics, resetVehicle } from './utils/physics';
 import { createAICompetitor, updateAICompetitor, resolveCarCollision, calculateRaceBattle } from './utils/aiCompetitor';
 import { generateIdealRacingLine } from './utils/racingLine';
@@ -240,7 +241,7 @@ export function App() {
 
   const splinePoints = useMemo(() => {
     const curve = buildTrackCurve(track.nodes, track.isClosed);
-    return sampleSplinePoints(curve, track.nodes, 350);
+    return addAutomaticGradeSeparation(sampleSplinePoints(curve, track.nodes, 350), track.isClosed);
   }, [track]);
 
   const racingLinePoints = useMemo(() => {
