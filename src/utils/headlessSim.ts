@@ -218,7 +218,7 @@ export function simulateCircuitLap(
     }
   }
 
-  // 6. FIA Homologation Grade Assessment
+  // 6. Indicative circuit grade from simplified design thresholds
   const minWidth = Math.min(...trackConfig.nodes.map(node => node.width || trackConfig.defaultWidth));
   const avgWidth = trackConfig.nodes.reduce((acc, node) => acc + (node.width || trackConfig.defaultWidth), 0) / Math.max(1, trackConfig.nodes.length);
   const minRunoff = Math.min(...trackConfig.nodes.map(node => node.runoffWidth ?? 8.5));
@@ -267,15 +267,15 @@ export function simulateCircuitLap(
   } else if (totalLength >= 3500 && minWidth >= 12.0 && trackConfig.isClosed && minRunoff >= 6.0) {
     grade = 'Grade 1 (F1)';
     badgeColor = '#EF4444';
-    description = 'Full FIA Grade 1 compliance. Certified for Formula 1 Grand Prix World Championship.';
+    description = 'This layout meets the app’s simplified Grade 1 screening thresholds. Official homologation requires a full FIA review.';
   } else if (totalLength >= 3000 && minWidth >= 10.0 && trackConfig.isClosed) {
     grade = 'Grade 2';
     badgeColor = '#10B981';
-    description = 'FIA Grade 2 compliance. Eligible for FIA WEC, Formula 2, IndyCar, and GT3.';
+    description = 'This layout meets the app’s simplified Grade 2 screening thresholds. It is not an eligibility determination.';
   } else if (totalLength >= 2200 && minWidth >= 9.0) {
     grade = 'Grade 3';
     badgeColor = '#F59E0B';
-    description = 'FIA Grade 3 compliance. Suitable for Formula 3, TCR, and national championships.';
+    description = 'This layout meets the app’s simplified Grade 3 screening thresholds. It is not an eligibility determination.';
   } else {
     grade = 'Grade 4 / Club';
     badgeColor = '#8B5CF6';

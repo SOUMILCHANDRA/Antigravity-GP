@@ -2,7 +2,7 @@ import React, { useRef, useEffect, useState, useCallback } from 'react';
 import { TrackNode, TrackConfig, EditorTool } from '../../types/track';
 import { buildTrackCurve, sampleSplinePoints, getNearestSplinePoint } from '../../utils/spline';
 import { CornerInfo } from '../../utils/trackAnalysis';
-import { Plus } from 'lucide-react';
+import { ArrowUpRight, Image as ImageIcon, Plus, Shapes } from 'lucide-react';
 
 interface EditorCanvasProps {
   track: TrackConfig;
@@ -22,6 +22,8 @@ interface EditorCanvasProps {
   isCalibrating?: boolean;
   calibrationPoints?: [{ x: number; y: number } | null, { x: number; y: number } | null];
   onCalibrationClick?: (pos: { x: number; y: number }) => void;
+  onOpenPresets?: () => void;
+  onOpenUnderlay?: () => void;
 }
 
 export const EditorCanvas: React.FC<EditorCanvasProps> = ({
@@ -40,7 +42,9 @@ export const EditorCanvas: React.FC<EditorCanvasProps> = ({
   corners = [],
   isCalibrating = false,
   calibrationPoints = [null, null],
-  onCalibrationClick
+  onCalibrationClick,
+  onOpenPresets,
+  onOpenUnderlay
 }) => {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
 
@@ -88,14 +92,14 @@ export const EditorCanvas: React.FC<EditorCanvasProps> = ({
   // Canvas dimensions
   const [canvasSize, setCanvasSize] = useState<{ width: number; height: number }>({
     width: window.innerWidth,
-    height: window.innerHeight - 64
+    height: window.innerHeight - 68
   });
 
   useEffect(() => {
     const handleResize = () => {
       setCanvasSize({
         width: window.innerWidth,
-        height: window.innerHeight - 64
+        height: window.innerHeight - 68
       });
     };
     window.addEventListener('resize', handleResize);
@@ -251,7 +255,7 @@ export const EditorCanvas: React.FC<EditorCanvasProps> = ({
     ctx.clearRect(0, 0, canvas.width, canvas.height);
 
     // 1. Motorsport Technical Background Grid
-    ctx.fillStyle = '#0B0E14';
+    ctx.fillStyle = '#111412';
     ctx.fillRect(0, 0, canvas.width, canvas.height);
 
     const gridSizeMeters = snapEnabled ? 20 : 40;
@@ -259,7 +263,7 @@ export const EditorCanvas: React.FC<EditorCanvasProps> = ({
     const startX = (offset.x + canvas.width / 2) % gridPixelSize;
     const startY = (offset.y + canvas.height / 2) % gridPixelSize;
 
-    ctx.strokeStyle = snapEnabled ? '#1A2332' : '#141A26';
+    ctx.strokeStyle = snapEnabled ? '#28312b' : '#1b211d';
     ctx.lineWidth = 1;
     for (let x = startX; x < canvas.width; x += gridPixelSize) {
       ctx.beginPath();
@@ -276,7 +280,7 @@ export const EditorCanvas: React.FC<EditorCanvasProps> = ({
 
     // Origin Axes
     const origin = worldToCanvas(0, 0);
-    ctx.strokeStyle = '#1E2B42';
+    ctx.strokeStyle = '#303a32';
     ctx.lineWidth = 1.5;
     ctx.beginPath();
     ctx.moveTo(0, origin.y);
@@ -318,7 +322,7 @@ export const EditorCanvas: React.FC<EditorCanvasProps> = ({
           if (idx === 0) ctx.moveTo(sp.x, sp.y);
           else ctx.lineTo(sp.x, sp.y);
         });
-        ctx.strokeStyle = '#382D20';
+        ctx.strokeStyle = '#31352d';
         ctx.lineWidth = (track.defaultWidth + 18) * zoom;
         ctx.stroke();
 
@@ -329,7 +333,7 @@ export const EditorCanvas: React.FC<EditorCanvasProps> = ({
           if (idx === 0) ctx.moveTo(sp.x, sp.y);
           else ctx.lineTo(sp.x, sp.y);
         });
-        ctx.strokeStyle = '#E10600';
+        ctx.strokeStyle = '#9eaa72';
         ctx.lineWidth = (track.defaultWidth + 2.5) * zoom;
         ctx.stroke();
 
@@ -340,7 +344,7 @@ export const EditorCanvas: React.FC<EditorCanvasProps> = ({
           if (idx === 0) ctx.moveTo(sp.x, sp.y);
           else ctx.lineTo(sp.x, sp.y);
         });
-        ctx.strokeStyle = '#1C2129';
+        ctx.strokeStyle = '#222824';
         ctx.lineWidth = track.defaultWidth * zoom;
         ctx.stroke();
 
@@ -364,7 +368,7 @@ export const EditorCanvas: React.FC<EditorCanvasProps> = ({
           const sPos = worldToCanvas(startNode.x, startNode.y);
           ctx.beginPath();
           ctx.arc(sPos.x, sPos.y, 11, 0, Math.PI * 2);
-          ctx.fillStyle = '#00FF66';
+          ctx.fillStyle = '#d1e47d';
           ctx.fill();
           ctx.strokeStyle = '#FFFFFF';
           ctx.lineWidth = 2.5;
@@ -384,7 +388,7 @@ export const EditorCanvas: React.FC<EditorCanvasProps> = ({
           if (idx === 0) ctx.moveTo(sp.x, sp.y);
           else ctx.lineTo(sp.x, sp.y);
         });
-        ctx.strokeStyle = '#E10600';
+        ctx.strokeStyle = '#d1e47d';
         ctx.lineWidth = 4 * zoom;
         ctx.stroke();
 
@@ -433,7 +437,7 @@ export const EditorCanvas: React.FC<EditorCanvasProps> = ({
         ctx.arc(sp.x, sp.y, 17, 0, Math.PI * 2);
         ctx.fillStyle = isFirst ? 'rgba(0, 255, 102, 0.25)' : 'rgba(225, 6, 0, 0.35)';
         ctx.fill();
-        ctx.strokeStyle = isFirst ? '#00FF66' : '#E10600';
+        ctx.strokeStyle = isFirst ? '#d1e47d' : '#8e9990';
         ctx.lineWidth = 2;
         ctx.stroke();
       }
@@ -441,14 +445,14 @@ export const EditorCanvas: React.FC<EditorCanvasProps> = ({
       // Main Node Circle
       ctx.beginPath();
       ctx.arc(sp.x, sp.y, 8.5, 0, Math.PI * 2);
-      ctx.fillStyle = isFirst ? '#00FF66' : isSelected ? '#E10600' : isLocked ? '#2A344A' : '#121721';
+      ctx.fillStyle = isFirst ? '#d1e47d' : isSelected ? '#e2a56b' : isLocked ? '#364039' : '#171d19';
       ctx.fill();
-      ctx.strokeStyle = isLocked ? '#F59E0B' : (isFirst ? '#00FF66' : '#FFFFFF');
+      ctx.strokeStyle = isLocked ? '#e3b46c' : (isFirst ? '#f1f3e8' : '#aab4aa');
       ctx.lineWidth = isLocked ? 2.5 : 2;
       ctx.stroke();
 
       // Node Index Label
-      ctx.fillStyle = isFirst ? '#000000' : '#FFFFFF';
+      ctx.fillStyle = isFirst ? '#192017' : '#f2f2ea';
       ctx.font = '700 9px Fira Code, monospace';
       ctx.textAlign = 'center';
       ctx.textBaseline = 'middle';
@@ -472,13 +476,13 @@ export const EditorCanvas: React.FC<EditorCanvasProps> = ({
         const badgeY = sp.y - 18;
 
         ctx.fillStyle = isSelected ? 'rgba(225, 6, 0, 0.95)' : 'rgba(15, 23, 42, 0.9)';
-        ctx.strokeStyle = isSelected ? '#FFFFFF' : '#38BDF8';
+        ctx.strokeStyle = isSelected ? '#f1f3e8' : '#b7c39c';
         ctx.lineWidth = 1;
         drawPill(badgeX - textWidth / 2 - 5, badgeY - 7, textWidth + 10, 14, 4);
         ctx.fill();
         ctx.stroke();
 
-        ctx.fillStyle = isSelected ? '#FFFFFF' : '#38BDF8';
+        ctx.fillStyle = isSelected ? '#f1f3e8' : '#b7c39c';
         ctx.textAlign = 'center';
         ctx.textBaseline = 'middle';
         ctx.fillText(badgeText, badgeX, badgeY);
@@ -903,7 +907,7 @@ export const EditorCanvas: React.FC<EditorCanvasProps> = ({
   };
 
   return (
-    <div className="relative w-full h-full bg-[#0B0E14] overflow-hidden select-none">
+    <div className="editor-canvas-shell relative w-full h-full bg-[#111412] overflow-hidden select-none">
       <canvas
         ref={canvasRef}
         width={canvasSize.width}
@@ -969,24 +973,22 @@ export const EditorCanvas: React.FC<EditorCanvasProps> = ({
       {/* Empty State Prompt */}
       {track.nodes.length === 0 && (
         <div className="absolute inset-0 flex flex-col items-center justify-center pointer-events-none text-center p-6">
-          <div className="bg-[#121721]/90 backdrop-blur-md border border-[#1E2638] rounded-2xl p-8 max-w-sm shadow-2xl flex flex-col items-center space-y-4">
-            <div className="w-12 h-12 rounded-xl bg-gradient-to-tr from-[#E10600] to-red-600 flex items-center justify-center text-white shadow-lg shadow-red-600/30">
-              <Plus className="w-6 h-6" />
+          <div className="empty-studio-card pointer-events-auto">
+            <div className="empty-card-topline"><span className="empty-mark"><Shapes size={17} /></span><span>NEW CIRCUIT PROJECT</span><span className="empty-rule" /></div>
+            <h2>Start with the shape<br />of your next circuit.</h2>
+            <p>Plot a layout from scratch, trace a real venue, or open a championship template and make it yours.</p>
+            <div className="empty-actions">
+              <button className="empty-primary" onClick={() => setActiveTool('draw')}><Plus size={15} /> Draw on canvas</button>
+              <button className="empty-secondary" onClick={onOpenPresets}><Shapes size={15} /> Browse templates <ArrowUpRight size={13} /></button>
+              <button className="empty-secondary" onClick={onOpenUnderlay}><ImageIcon size={15} /> Trace a map <ArrowUpRight size={13} /></button>
             </div>
-            <div className="space-y-1">
-              <h2 className="text-base font-extrabold text-white uppercase tracking-wider">
-                TRACK SHAPE STUDIO
-              </h2>
-              <p className="text-xs text-slate-400 font-mono">
-                Click anywhere to place control points, or press <span className="text-white font-bold">P</span> for Draw, <span className="text-white font-bold">E</span> for Edit.
-              </p>
-            </div>
+            <div className="empty-card-foot"><span><kbd>P</kbd> draw</span><span><kbd>E</kbd> edit</span><span><kbd>Space</kbd> pan</span><span>Click to place points</span></div>
           </div>
         </div>
       )}
 
       {/* Editor Status Bar */}
-      <div className="absolute bottom-4 left-4 bg-[#121721]/90 backdrop-blur-md border border-[#1E2638] rounded-xl px-3 py-2 text-xs text-slate-300 font-mono flex items-center gap-4 shadow-lg pointer-events-none">
+      <div className="canvas-status-bar absolute bottom-4 left-4 bg-[#121721]/90 backdrop-blur-md border border-[#1E2638] rounded-xl px-3 py-2 text-xs text-slate-300 font-mono flex items-center gap-4 shadow-lg pointer-events-none">
         <span className="flex items-center gap-1.5">
           <span className="w-2 h-2 rounded-full bg-cyan-400 animate-pulse" />
           TOOL: <strong className="text-white uppercase">{activeTool}</strong>

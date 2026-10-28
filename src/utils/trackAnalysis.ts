@@ -178,9 +178,9 @@ export function calculateTrackStats(track: TrackConfig, splinePoints: SplinePoin
 }
 
 /**
- * Validates circuit geometry for safety and FIA grade compliance:
+ * Screens circuit geometry with simple design heuristics:
  * - Warns on tight radius (< 15m)
- * - Warns on steep gradient (> 12%)
+ * - Warns on steep gradients (> 12%)
  * - Warns on self-intersection
  */
 export function validateTrackGeometry(track: TrackConfig, splinePoints: SplinePoint[]): ValidationIssue[] {
@@ -208,7 +208,7 @@ export function validateTrackGeometry(track: TrackConfig, splinePoints: SplinePo
       if (gradient > 12) {
         issues.push({
           type: 'warning',
-          message: `Steep gradient of ${gradient.toFixed(1)}% between Turn ${i + 1} and Turn ${((i + 1) % n) + 1} (FIA max recommended: 12%).`,
+          message: `Steep gradient of ${gradient.toFixed(1)}% between points ${i + 1} and ${((i + 1) % n) + 1} (screening threshold: 12%).`,
           nodeIndex: i,
           nodeId: n1.id
         });
@@ -222,7 +222,7 @@ export function validateTrackGeometry(track: TrackConfig, splinePoints: SplinePo
     if (c.radius < 15) {
       issues.push({
         type: 'warning',
-        message: `${c.name} has an ultra-tight radius of ${c.radius}m (FIA hairpin minimum: 15m).`,
+      message: `${c.name} has a tight estimated radius of ${c.radius}m (screening threshold: 15m).`,
         nodeIndex: c.nodeIndex,
         nodeId: c.nodeId
       });

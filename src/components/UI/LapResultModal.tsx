@@ -17,7 +17,7 @@ export const LapResultModal: React.FC<LapResultModalProps> = ({
   const isValid = telemetry.lapValid;
 
   return (
-    <div className="fixed inset-0 bg-black/80 backdrop-blur-md flex items-center justify-center z-50 select-none p-4 font-sans">
+    <div className="pro-modal fixed inset-0 bg-black/80 backdrop-blur-md flex items-center justify-center z-50 select-none p-4 font-sans">
       <div className="bg-[#0E131F] border border-[#1E2638] rounded-3xl p-6 shadow-2xl max-w-sm w-full text-slate-100 flex flex-col items-center space-y-5 relative overflow-hidden">
         {/* Header Icon */}
         <div className={`w-14 h-14 rounded-2xl flex items-center justify-center text-white shadow-lg ${

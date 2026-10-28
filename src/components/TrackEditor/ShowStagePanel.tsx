@@ -45,7 +45,7 @@ export const ShowStagePanel: React.FC<ShowStagePanelProps> = ({
   const [isExportingPNG, setIsExportingPNG] = useState(false);
   const [importError, setImportError] = useState<string | null>(null);
 
-  // Run headless fast lap & FIA homologation simulation
+  // Run a headless lap estimate and indicative design-grade screen
   const simResult: LapSimulationResult = useMemo(() => {
     return simulateCircuitLap(splinePoints, track, playerCarId);
   }, [splinePoints, track, playerCarId]);
@@ -79,7 +79,7 @@ export const ShowStagePanel: React.FC<ShowStagePanelProps> = ({
   };
 
   return (
-    <div className="absolute top-16 left-6 w-[430px] max-h-[calc(100vh-100px)] flex flex-col bg-[#0F172A]/95 backdrop-blur-xl border border-slate-700/80 rounded-2xl shadow-2xl z-30 overflow-hidden text-slate-100">
+    <div className="studio-show-panel absolute top-16 left-6 w-[430px] max-h-[calc(100vh-100px)] flex flex-col bg-[#0F172A]/95 backdrop-blur-xl border border-slate-700/80 rounded-2xl shadow-2xl z-30 overflow-hidden text-slate-100">
       {/* Stage Header */}
       <div className="p-4 border-b border-slate-700/60 flex items-center justify-between bg-slate-900/60">
         <div>
@@ -92,7 +92,7 @@ export const ShowStagePanel: React.FC<ShowStagePanelProps> = ({
           </h2>
         </div>
 
-        {/* FIA Grade Tag */}
+        {/* Estimated design grade */}
         <div
           className="px-2.5 py-1 rounded-full text-[11px] font-bold font-mono border shadow-sm flex items-center gap-1.5"
           style={{
@@ -292,10 +292,10 @@ export const ShowStagePanel: React.FC<ShowStagePanelProps> = ({
               }}
             />
 
-            {/* FIA Homologation Assessment Card */}
+            {/* Indicative track design assessment */}
             <div className="bg-slate-900/80 border border-slate-800 rounded-xl p-3 flex flex-col gap-2">
               <div className="flex items-center justify-between">
-                <span className="text-xs font-bold text-slate-200">FIA Homologation Safety Audit</span>
+                <span className="text-xs font-bold text-slate-200">Indicative circuit design check</span>
                 <span
                   className="text-[10px] font-bold font-mono px-2 py-0.5 rounded"
                   style={{
@@ -309,6 +309,7 @@ export const ShowStagePanel: React.FC<ShowStagePanelProps> = ({
               <p className="text-[11px] text-slate-400 leading-relaxed">
                 {simResult.fiaGrade.description}
               </p>
+              <p className="text-[10px] text-slate-500 leading-relaxed">Geometry thresholds are screening estimates. This report is not an FIA homologation or safety certification.</p>
 
               <div className="flex flex-col gap-1.5 mt-1 border-t border-slate-800 pt-2">
                 {simResult.fiaGrade.criteria.map((c) => (
@@ -321,7 +322,7 @@ export const ShowStagePanel: React.FC<ShowStagePanelProps> = ({
                     </span>
                     <span className={c.passed ? 'text-slate-200' : 'text-rose-300'}>
                       {c.value}{' '}
-                      <span className="text-[10px] text-slate-500">({c.requirement})</span>
+                    <span className="text-[10px] text-slate-500">({c.requirement})</span>
                     </span>
                   </div>
                 ))}

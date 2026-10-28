@@ -32,10 +32,25 @@ import { LapResultModal } from './components/UI/LapResultModal';
 import { CarSelectModal } from './components/UI/CarSelectModal';
 import { KeyboardShortcutsModal } from './components/UI/KeyboardShortcutsModal';
 
+const DRAFT_STORAGE_KEY = 'antigravity-gp:last-circuit';
+
+function readSavedDraft(): TrackConfig {
+  try {
+    const raw = localStorage.getItem(DRAFT_STORAGE_KEY);
+    if (!raw) return EMPTY_TRACK;
+    const draft = JSON.parse(raw) as Partial<TrackConfig>;
+    if (!Array.isArray(draft.nodes) || typeof draft.name !== 'string' || typeof draft.defaultWidth !== 'number') return EMPTY_TRACK;
+    return { ...EMPTY_TRACK, ...draft } as TrackConfig;
+  } catch {
+    return EMPTY_TRACK;
+  }
+}
+
 export function App() {
   const [mode, setMode] = useState<AppMode>('builder');
   const [studioStage, setStudioStage] = useState<StudioStage>('shape');
-  const [track, setTrack] = useState<TrackConfig>(EMPTY_TRACK);
+  const [track, setTrack] = useState<TrackConfig>(readSavedDraft);
+  const [saveState, setSaveState] = useState<'saved' | 'saving' | 'error'>('saved');
   const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null);
   const [selectedNodeIds, setSelectedNodeIds] = useState<string[]>([]);
   const [activeTool, setActiveTool] = useState<EditorTool>('draw');
@@ -90,9 +105,22 @@ export function App() {
   }, [mode]);
 
   // History stack for Undo/Redo
-  const historyRef = useRef<TrackHistory>(new TrackHistory(EMPTY_TRACK));
+  const historyRef = useRef<TrackHistory>(new TrackHistory(track));
   const [canUndo, setCanUndo] = useState<boolean>(false);
   const [canRedo, setCanRedo] = useState<boolean>(false);
+
+  useEffect(() => {
+    setSaveState('saving');
+    const timeout = window.setTimeout(() => {
+      try {
+        localStorage.setItem(DRAFT_STORAGE_KEY, JSON.stringify(track));
+        setSaveState('saved');
+      } catch {
+        setSaveState('error');
+      }
+    }, 450);
+    return () => window.clearTimeout(timeout);
+  }, [track]);
 
   // Audio Mute state (Muted by default)
   const [isMuted, setIsMuted] = useState<boolean>(true);
@@ -689,7 +717,7 @@ export function App() {
   };
 
   return (
-    <div className="w-screen h-screen overflow-hidden flex flex-col bg-[#0B0E14] select-none font-sans text-slate-100">
+    <div className="app-shell w-screen h-screen overflow-hidden flex flex-col bg-[#111412] select-none font-sans text-slate-100">
       <Header
         mode={mode}
         setMode={(newMode) => {
@@ -709,14 +737,15 @@ export function App() {
         viewMode={editorViewMode}
         onViewModeChange={setEditorViewMode}
         onOpenShortcuts={() => setShowShortcutsModal(true)}
+        saveState={saveState}
       />
 
-      <main className="flex-1 relative w-full h-[calc(100vh-64px)] overflow-hidden">
+      <main className="app-main flex-1 relative w-full h-[calc(100vh-68px)] overflow-hidden">
         {mode === 'builder' ? (
-          <div className="flex w-full h-full relative">
+          <div className="editor-workspace flex w-full h-full relative">
             {/* 2D Canvas Viewport (rendered in 2D and Split view modes) */}
             {editorViewMode !== '3d' && (
-              <div className={`h-full relative ${editorViewMode === 'split' ? 'w-1/2 border-r border-slate-800' : 'w-full'}`}>
+              <div className={`viewport-pane h-full relative ${editorViewMode === 'split' ? 'border-r border-slate-800' : ''}`}>
                 <EditorCanvas
                   track={track}
                   setTrack={updateTrackState}
@@ -734,13 +763,15 @@ export function App() {
                   isCalibrating={isCalibrating}
                   calibrationPoints={calibrationPoints}
                   onCalibrationClick={handleCalibrationClick}
+                  onOpenPresets={() => setShowPresetsModal(true)}
+                  onOpenUnderlay={() => setShowUnderlayPanel(true)}
                 />
               </div>
             )}
 
             {/* 3D Orbit / Flythrough Viewport (rendered in 3D and Split view modes) */}
             {editorViewMode !== '2d' && (
-              <div className={`h-full relative ${editorViewMode === 'split' ? 'w-1/2' : 'w-full'}`}>
+              <div className="viewport-pane h-full relative">
                 {studioStage === 'show' && is3DFlythrough ? (
                   <FlythroughViewer
                     splinePoints={splinePoints}

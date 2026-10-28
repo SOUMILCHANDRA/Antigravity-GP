@@ -182,7 +182,7 @@ export const DressStagePanel: React.FC<DressStagePanelProps> = ({
   };
 
   return (
-    <div className="absolute top-4 left-4 z-40 w-84 bg-[#101522]/95 backdrop-blur-md border border-[#222C3E] rounded-2xl shadow-2xl overflow-hidden font-sans text-slate-200 select-none animate-in fade-in slide-in-from-left duration-200">
+    <div className="studio-dress-panel absolute top-4 left-4 z-40 w-84 bg-[#101522]/95 backdrop-blur-md border border-[#222C3E] rounded-2xl shadow-2xl overflow-hidden font-sans text-slate-200 select-none animate-in fade-in slide-in-from-left duration-200">
       {/* Header */}
       <div className="px-4 py-3 bg-[#151C2C] border-b border-[#222C3E] flex items-center justify-between">
         <div className="flex items-center gap-2">

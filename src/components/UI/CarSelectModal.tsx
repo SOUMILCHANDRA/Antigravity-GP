@@ -27,7 +27,7 @@ export const CarSelectModal: React.FC<CarSelectModalProps> = ({
   const isAiSelected = aiCarId === previewCarId;
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-md p-4 animate-in fade-in duration-200">
+    <div className="pro-modal fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-md p-4 animate-in fade-in duration-200">
       <div className="w-full max-w-5xl bg-[#0E131F] border border-[#1E2638] rounded-2xl shadow-2xl overflow-hidden flex flex-col max-h-[90vh]">
         {/* Header */}
         <div className="px-6 py-4 border-b border-[#1E2638] flex items-center justify-between bg-[#121724]">

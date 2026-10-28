@@ -135,7 +135,7 @@ export const EditorToolbar: React.FC<EditorToolbarProps> = ({
   const estimatedTime = isValidTrack ? estimateLapTime(circuitLength, track.nodes.length) : null;
 
   return (
-    <div className="w-80 bg-[#0E131F] border-l border-[#1E2638] h-[calc(100vh-64px)] p-4 flex flex-col justify-between overflow-y-auto z-30 select-none text-slate-200 font-sans">
+    <div className="editor-control-rail w-80 bg-[#0E131F] border-l border-[#1E2638] h-[calc(100vh-68px)] p-4 flex flex-col justify-between overflow-y-auto z-30 select-none text-slate-200 font-sans">
       <div className="space-y-4">
         {/* Main Drive CTA Button */}
         <button

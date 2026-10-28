@@ -64,7 +64,7 @@ export const RaceHUD: React.FC<RaceHUDProps> = ({
   };
 
   return (
-    <div className="absolute top-20 left-6 flex flex-col gap-3 z-30 select-none font-mono text-slate-100">
+    <div className="race-hud-panel absolute top-20 left-6 flex flex-col gap-3 z-30 select-none font-mono text-slate-100">
       {/* 1. Live Speedometer Pill, Racing Line Toggle, AI Rival Toggle & Reset Button */}
       <div className="flex items-center gap-2">
         <div className="bg-[#0E131F]/90 backdrop-blur-md border border-[#1E2638] rounded-2xl px-5 py-3 shadow-xl flex items-baseline gap-2">

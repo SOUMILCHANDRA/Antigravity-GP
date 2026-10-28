@@ -17,7 +17,7 @@ export const PresetModal: React.FC<PresetModalProps> = ({
   if (!isOpen) return null;
 
   return (
-    <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-md flex items-center justify-center p-4 select-none font-sans animate-in fade-in duration-200">
+    <div className="pro-modal fixed inset-0 z-50 bg-black/80 backdrop-blur-md flex items-center justify-center p-4 select-none font-sans animate-in fade-in duration-200">
       <div className="bg-[#0F1420] border border-[#222C3E] rounded-2xl shadow-2xl w-full max-w-4xl overflow-hidden flex flex-col max-h-[85vh]">
         {/* Header */}
         <div className="px-6 py-4 bg-[#141B2B] border-b border-[#222C3E] flex items-center justify-between">

@@ -26,6 +26,8 @@ The builder is organized as three stages, selectable in the top bar or with **1*
 - **Dress** — configure circuit style and surface appearance, pit lane, crossings, and venue facilities such as grandstands, pit buildings, paddock areas, marshal posts, barriers, cameras, trees, and sponsor boards.
 - **Show** — inspect the simulated speed profile, lap estimate, detected turns, elevation and FIA-style grade; play a 3D flythrough; and export or import circuit files.
 
+The current draft autosaves in the browser and is restored the next time the app opens in that browser. Use JSON export for a portable backup or to move a design to another device.
+
 The viewport supports **2D**, **split 2D/3D**, and **3D** views. Press **V** to cycle them and **?** to open the shortcuts guide. In Shape, **P** selects Draw, **E** selects Edit, **X** selects Erase, and Space-drag pans the canvas.
 
 ### Import and export

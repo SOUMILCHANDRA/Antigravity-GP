@@ -24,6 +24,8 @@ export const TrackStatsPanel: React.FC<TrackStatsPanelProps> = ({
   issues,
   onSelectNode
 }) => {
+  if (stats.lengthMeters <= 0 && issues.length === 0) return null;
+
   const [isExpanded, setIsExpanded] = useState<boolean>(false);
   const [showIssuesList, setShowIssuesList] = useState<boolean>(false);
 
@@ -32,7 +34,7 @@ export const TrackStatsPanel: React.FC<TrackStatsPanelProps> = ({
   const hasIssues = issues.length > 0;
 
   return (
-    <div className="absolute bottom-4 left-4 z-30 font-sans select-none animate-in fade-in slide-in-from-bottom duration-200">
+    <div className="track-stats-panel absolute bottom-4 left-4 z-30 font-sans select-none animate-in fade-in slide-in-from-bottom duration-200">
       <div className="bg-[#101522]/95 backdrop-blur-md border border-[#222C3E] rounded-2xl shadow-2xl overflow-hidden text-slate-200 w-96">
         {/* Header Bar */}
         <div 
@@ -59,7 +61,7 @@ export const TrackStatsPanel: React.FC<TrackStatsPanelProps> = ({
             ) : (
               <span className="px-2 py-0.5 rounded-full text-[10px] font-mono font-bold bg-emerald-950/80 text-emerald-400 border border-emerald-800 flex items-center gap-1">
                 <CheckCircle className="w-3 h-3" />
-                FIA OK
+                NO ISSUES
               </span>
             )}
 
@@ -131,7 +133,7 @@ export const TrackStatsPanel: React.FC<TrackStatsPanelProps> = ({
             <div className="pt-2 border-t border-[#1E2638] space-y-2">
               <div className="flex items-center justify-between">
                 <span className="text-[10px] font-mono font-bold text-slate-400 uppercase tracking-wider">
-                  FIA CIRCUIT SAFETY VALIDATION
+                  CIRCUIT GEOMETRY CHECK
                 </span>
                 {hasIssues && (
                   <button 
@@ -147,7 +149,7 @@ export const TrackStatsPanel: React.FC<TrackStatsPanelProps> = ({
                 <div className="p-2.5 rounded-xl bg-emerald-950/40 border border-emerald-800/60 text-emerald-300 flex items-center gap-2">
                   <CheckCircle className="w-4 h-4 text-emerald-400 shrink-0" />
                   <span className="text-[11px] leading-tight">
-                    Circuit geometry complies with FIA Grade 1 guidelines. No severe gradients or illegal self-intersections detected.
+                    No flagged geometry issues. This layout check is an estimate, not an official FIA safety or homologation assessment.
                   </span>
                 </div>
               ) : (

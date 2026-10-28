@@ -140,7 +140,7 @@ export function generateCircuitSVG(
       ${(track.name || 'ANTIGRAVITY CIRCUIT').toUpperCase()}
     </text>
     <text x="18" y="48" fill="#94A3B8" font-size="11" font-family="monospace">
-      HOMOLOGATION: <tspan fill="#F59E0B" font-weight="bold">${fiaGrade}</tspan>
+      ESTIMATED DESIGN GRADE: <tspan fill="#F59E0B" font-weight="bold">${fiaGrade}</tspan>
     </text>
 
     <!-- Circuit Metrics Grid -->

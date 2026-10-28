@@ -107,7 +107,7 @@ export const Minimap: React.FC<MinimapProps> = ({
   }, [splinePoints, carPosition, carRotationY, aiPosition, aiRotationY]);
 
   return (
-    <div className="absolute top-20 right-6 bg-[#0E131F]/90 backdrop-blur-md border border-[#1E2638] rounded-2xl p-3 shadow-xl z-30 select-none">
+    <div className="race-minimap absolute top-20 right-6 bg-[#0E131F]/90 backdrop-blur-md border border-[#1E2638] rounded-2xl p-3 shadow-xl z-30 select-none">
       <div className="flex items-center justify-between gap-2 mb-2">
         <span className="text-[10px] font-bold font-mono text-slate-400 uppercase tracking-wider">
           CIRCUIT MAP
