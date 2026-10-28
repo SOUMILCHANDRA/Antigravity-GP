@@ -4,6 +4,7 @@ import { simulateCircuitLap, LapSimulationResult } from '../../utils/headlessSim
 import { exportCircuitJSON, exportCircuitSVG, exportCircuitPNG } from '../../utils/trackExport';
 import { ElevationSpeedChart } from './ElevationSpeedChart';
 import { FlythroughCameraMode } from '../Race3D/FlythroughCamera';
+import { importTrackFile } from '../../utils/trackImport';
 
 interface ShowStagePanelProps {
   track: TrackConfig;
@@ -56,39 +57,13 @@ export const ShowStagePanel: React.FC<ShowStagePanelProps> = ({
   const handleImportJSON = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
-
-    const reader = new FileReader();
-    reader.onload = (event) => {
-      try {
-        const parsed = JSON.parse(event.target?.result as string);
-        if (!parsed.nodes || !Array.isArray(parsed.nodes) || parsed.nodes.length < 2) {
-          throw new Error('Invalid circuit file: missing valid track nodes array.');
-        }
-
-        const importedTrack: TrackConfig = {
-          id: parsed.id || Date.now().toString(),
-          name: parsed.name || 'Imported Circuit',
-          nodes: parsed.nodes,
-          isClosed: parsed.isClosed ?? true,
-          defaultWidth: parsed.defaultWidth || 14,
-          asphaltColor: parsed.asphaltColor || '#222222',
-          version: parsed.version || 2,
-          startIndex: parsed.startIndex || 0,
-          pitLane: parsed.pitLane,
-          dressing: parsed.dressing,
-          facilities: parsed.facilities || [],
-          venueStyle: parsed.venueStyle || 'gp',
-          underlay: parsed.underlay
-        };
-
-        setTrack(importedTrack, `Import Circuit: ${importedTrack.name}`);
-        setImportError(null);
-      } catch (err: any) {
-        setImportError(err.message || 'Failed to parse JSON circuit file.');
-      }
-    };
-    reader.readAsText(file);
-    // Reset file input
+    file.text().then((text) => {
+      const importedTrack = importTrackFile(text, file.name);
+      setTrack(importedTrack, `Import Circuit: ${importedTrack.name}`);
+      setImportError(null);
+    }).catch((err: unknown) => {
+      setImportError(err instanceof Error ? err.message : 'Failed to import this circuit file.');
+    });
     e.target.value = '';
   };
 
@@ -465,14 +440,15 @@ export const ShowStagePanel: React.FC<ShowStagePanelProps> = ({
               <span className="text-xs font-bold text-slate-300">Import Existing Circuit</span>
               <label className="w-full py-2 px-3 rounded-xl border border-dashed border-slate-600 hover:border-cyan-400 bg-slate-900/50 hover:bg-slate-900 cursor-pointer flex items-center justify-center gap-2 text-slate-300 transition-all">
                 <span>📁</span>
-                <span className="text-xs font-mono">Upload .json Circuit File</span>
+                <span className="text-xs font-mono">Upload JSON, GPX, KML, or GeoJSON</span>
                 <input
                   type="file"
-                  accept=".json,application/json"
+                  accept=".json,.gpx,.kml,.geojson,application/json,application/gpx+xml,application/vnd.google-earth.kml+xml,application/geo+json"
                   onChange={handleImportJSON}
                   className="hidden"
                 />
               </label>
+              <span className="text-[10px] text-slate-500">GPS coordinates are projected to a local metre grid. Track width and venue detail can be edited after import.</span>
 
               {importError && (
                 <div className="p-2 rounded bg-rose-500/10 border border-rose-500/30 text-rose-300 text-[11px] font-mono">
