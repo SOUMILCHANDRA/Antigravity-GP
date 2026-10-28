@@ -95,6 +95,8 @@ export interface SplinePoint {
   binormal: Vector3D;
   width: number;
   elevation: number;
+  /** Automatically generated deck structure for an elevated crossing. */
+  bridge?: boolean;
   /** Automatically generated road cover for underpasses or terrain tunnels. */
   tunnel?: boolean;
   banking: number;        // in degrees (-20 to 25)

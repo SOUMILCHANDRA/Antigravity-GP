@@ -130,6 +130,51 @@ function createTunnelShell(splinePoints: SplinePoint[]): THREE.BufferGeometry | 
   return geometry;
 }
 
+function createBridgeDeck(splinePoints: SplinePoint[], isClosed: boolean): THREE.BufferGeometry | null {
+  if (splinePoints.length < 2 || !splinePoints.some((point) => point.bridge)) return null;
+
+  const vertices: number[] = [];
+  const indices: number[] = [];
+  const pointCount = splinePoints.length;
+
+  for (const point of splinePoints) {
+    const bankRad = (point.banking || 0) * (Math.PI / 180);
+    const bLatX = point.binormal.x * Math.cos(bankRad) + point.normal.x * Math.sin(bankRad);
+    const bLatY = point.binormal.y * Math.cos(bankRad) + point.normal.y * Math.sin(bankRad);
+    const bLatZ = point.binormal.z * Math.cos(bankRad) + point.normal.z * Math.sin(bankRad);
+    const bUpX = -point.binormal.x * Math.sin(bankRad) + point.normal.x * Math.cos(bankRad);
+    const bUpY = -point.binormal.y * Math.sin(bankRad) + point.normal.y * Math.cos(bankRad);
+    const bUpZ = -point.binormal.z * Math.sin(bankRad) + point.normal.z * Math.cos(bankRad);
+    const halfSpan = point.width / 2 + 0.65 + (point.runoffWidth || 8.5) + 2.0;
+    const deckDepth = 1.1;
+    const leftTop = [point.position.x - bLatX * halfSpan, point.position.y - bLatY * halfSpan, point.position.z - bLatZ * halfSpan];
+    const rightTop = [point.position.x + bLatX * halfSpan, point.position.y + bLatY * halfSpan, point.position.z + bLatZ * halfSpan];
+    const leftBottom = [leftTop[0] - bUpX * deckDepth, leftTop[1] - bUpY * deckDepth, leftTop[2] - bUpZ * deckDepth];
+    const rightBottom = [rightTop[0] - bUpX * deckDepth, rightTop[1] - bUpY * deckDepth, rightTop[2] - bUpZ * deckDepth];
+    vertices.push(...leftTop, ...rightTop, ...leftBottom, ...rightBottom);
+  }
+
+  const connectSections = (i: number, next: number) => {
+    if (!splinePoints[i].bridge || !splinePoints[next].bridge) return;
+    const a = i * 4;
+    const b = next * 4;
+    // Outer girders and the visible underside of the concrete bridge deck.
+    indices.push(a, a + 2, b + 2, a, b + 2, b);
+    indices.push(a + 1, b + 1, b + 3, a + 1, b + 3, a + 3);
+    indices.push(a + 2, a + 3, b + 3, a + 2, b + 3, b + 2);
+  };
+
+  for (let i = 0; i < pointCount - 1; i++) connectSections(i, i + 1);
+  if (isClosed) connectSections(pointCount - 1, 0);
+  if (indices.length === 0) return null;
+
+  const geometry = new THREE.BufferGeometry();
+  geometry.setAttribute('position', new THREE.Float32BufferAttribute(vertices, 3));
+  geometry.setIndex(indices);
+  geometry.computeVertexNormals();
+  return geometry;
+}
+
 export const TrackMesh: React.FC<TrackMeshProps> = ({ splinePoints, trackConfig }) => {
   const dressing = trackConfig.dressing;
   const pitLane = trackConfig.pitLane;
@@ -144,6 +189,7 @@ export const TrackMesh: React.FC<TrackMeshProps> = ({ splinePoints, trackConfig 
     rightRunoffGeom,
     armcoGeom,
     embankmentGeom,
+    bridgeGeom,
     tunnelGeom,
     pitLaneGeom,
     pitWallGeom
@@ -158,6 +204,7 @@ export const TrackMesh: React.FC<TrackMeshProps> = ({ splinePoints, trackConfig 
         rightRunoffGeom: null,
         armcoGeom: null,
         embankmentGeom: null,
+        bridgeGeom: null,
         tunnelGeom: null,
         pitLaneGeom: null,
         pitWallGeom: null
@@ -489,6 +536,7 @@ export const TrackMesh: React.FC<TrackMeshProps> = ({ splinePoints, trackConfig 
     embGeom.setIndex(embankmentIndices);
     embGeom.computeVertexNormals();
 
+    const bridge = createBridgeDeck(splinePoints, trackConfig.isClosed);
     const tunnel = createTunnelShell(splinePoints);
 
     // 7. Pit Lane Road & Concrete Pit Wall Geometry (if enabled)
@@ -578,11 +626,12 @@ export const TrackMesh: React.FC<TrackMeshProps> = ({ splinePoints, trackConfig 
       rightRunoffGeom: rroGeom,
       armcoGeom: armGeom,
       embankmentGeom: embGeom,
+      bridgeGeom: bridge,
       tunnelGeom: tunnel,
       pitLaneGeom: pLaneGeom,
       pitWallGeom: pWallGeom
     };
-  }, [splinePoints, dressing, pitLane]);
+  }, [splinePoints, dressing, pitLane, trackConfig.isClosed]);
 
   const startP = splinePoints[trackConfig.startIndex || 0] || splinePoints[0];
 
@@ -664,6 +713,13 @@ export const TrackMesh: React.FC<TrackMeshProps> = ({ splinePoints, trackConfig 
             metalness={0.02}
             side={THREE.DoubleSide}
           />
+        </mesh>
+      )}
+
+      {/* Concrete deck and outer girders make the automatically raised lane read as a bridge. */}
+      {bridgeGeom && (
+        <mesh geometry={bridgeGeom} receiveShadow castShadow>
+          <meshStandardMaterial color="#62676D" roughness={0.82} metalness={0.08} side={THREE.DoubleSide} />
         </mesh>
       )}
 
