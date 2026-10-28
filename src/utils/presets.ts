@@ -381,7 +381,7 @@ CIRCUIT_DE_SPA_FRANCORCHAMPS.nodes = sourcedNodes('spa', 'spa', 14.5, 7004);
 MONACO_STREET_CIRCUIT.nodes = sourcedNodes('monaco', 'mc', 10.5, 3337);
 SUZUKA_FIGURE_EIGHT.nodes = sourcedNodes('suzuka', 'sz', 14, 5807, (index) => {
   // Elevate the back-straight crossing over the lower track; this is a road bridge, not an at-grade junction.
-  return ({ 42: 0, 43: 3, 44: 10, 45: 7, 46: 2 } as Record<number, number>)[index] ?? 0;
+  return ({ 42: 0, 43: 4, 44: 14, 45: 8, 46: 2 } as Record<number, number>)[index] ?? 0;
 });
 AUTODROMO_NAZIONALE_MONZA.nodes = sourcedNodes('monza', 'mz', 14, 5793);
 GRAND_PRIX_INTERNATIONAL.nodes = sourcedNodes('interlagos', 'gp', 14, 4309);

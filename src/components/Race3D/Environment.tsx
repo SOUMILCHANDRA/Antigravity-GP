@@ -35,10 +35,12 @@ export const Environment: React.FC<EnvironmentProps> = ({ splinePoints = [] }) =
     const originX = minX - margin;
     const originZ = minZ - margin;
 
-    // A denser grid follows the banked track bed and rolling terrain closely
-    // enough to avoid broad triangles cutting through the asphalt/runoff.
-    const segs = 120;
-    const geom = new THREE.PlaneGeometry(spanX, spanZ, segs, segs);
+    // Keep the terrain triangles small relative to a full-size circuit. A fixed
+    // 120x120 grid left 20–30 m triangles beneath the new long-layout presets,
+    // which could interpolate above the road between terrain samples.
+    const segsX = Math.max(120, Math.min(240, Math.ceil(spanX / 16)));
+    const segsZ = Math.max(120, Math.min(240, Math.ceil(spanZ / 16)));
+    const geom = new THREE.PlaneGeometry(spanX, spanZ, segsX, segsZ);
     geom.rotateX(-Math.PI / 2);
 
     const posAttr = geom.attributes.position;
