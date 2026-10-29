@@ -1,7 +1,6 @@
-import { AIDifficulty, LapTelemetry, RaceBattleState } from '../../types/track';
+import { AIDifficulty, LapTelemetry, RaceBattleState, RaceStanding } from '../../types/track';
 import { formatTime } from '../../utils/time';
-import { Timer, Trophy, Gauge, AlertTriangle, Route, CheckCircle, RotateCcw, Swords, Flame, Car } from 'lucide-react';
-import { CAR_PRESETS, DEFAULT_PLAYER_CAR_ID } from '../../utils/carPresets';
+import { Timer, Trophy, Gauge, AlertTriangle, Route, CheckCircle, RotateCcw, Swords, Flame } from 'lucide-react';
 
 export { formatTime };
 
@@ -16,13 +15,11 @@ interface RaceHUDProps {
   battleState?: RaceBattleState | null;
   aiEnabled?: boolean;
   onToggleAI?: () => void;
-  aiTelemetry?: LapTelemetry | null;
   difficulty?: AIDifficulty;
   onChangeDifficulty?: () => void;
-  isDrafting?: boolean;
-  isOvertaking?: boolean;
-  playerCarId?: string;
-  onOpenGarage?: () => void;
+  gridSize: number;
+  onGridSizeChange: (count: number) => void;
+  standings: RaceStanding[];
 }
 
 export const RaceHUD: React.FC<RaceHUDProps> = ({
@@ -36,17 +33,14 @@ export const RaceHUD: React.FC<RaceHUDProps> = ({
   battleState,
   aiEnabled = false,
   onToggleAI,
-  aiTelemetry,
   difficulty = 'challenger',
   onChangeDifficulty,
-  isDrafting = false,
-  isOvertaking = false,
-  playerCarId = DEFAULT_PLAYER_CAR_ID,
-  onOpenGarage
+  gridSize,
+  onGridSizeChange,
+  standings
 }) => {
   const isReverse = speedKmh < 0;
   const absSpeed = Math.abs(speedKmh);
-  const currentCar = CAR_PRESETS[playerCarId] || CAR_PRESETS[DEFAULT_PLAYER_CAR_ID];
 
   const difficultyColors = {
     rookie: 'border-emerald-500/60 text-emerald-400 bg-emerald-950/40',
@@ -85,7 +79,8 @@ export const RaceHUD: React.FC<RaceHUDProps> = ({
         {onToggleAI && (
           <button
             onClick={onToggleAI}
-            title={aiEnabled ? 'Disable AI Rival Competitor' : 'Enable AI Rival Competitor'}
+            title={aiEnabled ? 'Disable the AI race field' : 'Enable an AI race field'}
+            aria-label={aiEnabled ? 'Disable AI race field' : 'Enable AI race field'}
             className={`p-3 rounded-2xl border transition-all flex items-center justify-center ${
               aiEnabled
                 ? 'bg-cyan-950/80 border-cyan-500 text-cyan-400 shadow-lg shadow-cyan-500/20'
@@ -110,17 +105,12 @@ export const RaceHUD: React.FC<RaceHUDProps> = ({
           </button>
         )}
 
-        {/* Garage Car Selection Button */}
-        {onOpenGarage && (
-          <button
-            onClick={onOpenGarage}
-            title={`Active Car: ${currentCar.name} (${currentCar.badge}). Click to open Garage.`}
-            className="px-3.5 py-2.5 rounded-2xl border bg-[#0E131F]/90 hover:bg-[#151D2E] border-[#1E2638] text-slate-300 hover:text-white transition-all flex items-center gap-2 active:scale-95 cursor-pointer shadow-lg"
-          >
-            <Car className="w-4 h-4 text-red-500" />
-            <span className="text-xs font-bold font-sans">{currentCar.shortName}</span>
-          </button>
-        )}
+        <label className="px-3 py-2 rounded-2xl border bg-[#0E131F]/90 border-[#1E2638] text-slate-400 text-[9px] font-bold tracking-wide flex items-center gap-2">
+          GRID
+          <select value={gridSize} onChange={(event) => onGridSizeChange(Number(event.target.value))} aria-label="Starting grid size" className="bg-transparent text-white outline-none text-xs cursor-pointer">
+            {Array.from({ length: 13 }, (_, index) => index + 8).map((count) => <option key={count} value={count} className="bg-[#0E131F]">{count} CARS</option>)}
+          </select>
+        </label>
 
         {/* Car & Timer Reset Button */}
         {onReset && (
@@ -151,19 +141,7 @@ export const RaceHUD: React.FC<RaceHUDProps> = ({
               <span className="text-[11px] font-sans font-bold text-white tracking-wide">
                 {battleState.playerRank === 1 ? 'LEADER' : 'CHASING'}
               </span>
-              {isDrafting ? (
-                <span className="text-[9px] font-mono text-amber-400 font-bold animate-pulse flex items-center gap-1">
-                  ⚡ SLIPSTREAM TOW
-                </span>
-              ) : isOvertaking ? (
-                <span className="text-[9px] font-mono text-rose-400 font-bold animate-pulse flex items-center gap-1">
-                  ⚔️ OVERTAKE ATTEMPT
-                </span>
-              ) : (
-                <span className="text-[9px] font-mono text-cyan-400">
-                  VS APEX AI ({difficulty.toUpperCase()})
-                </span>
-              )}
+              <span className="text-[9px] font-mono text-cyan-400">{gridSize}-CAR GRAND PRIX · {difficulty.toUpperCase()}</span>
             </div>
           </div>
 
@@ -181,6 +159,20 @@ export const RaceHUD: React.FC<RaceHUDProps> = ({
                 : `-${battleState.gapMeters}m`}
             </div>
           </div>
+        </div>
+      )}
+
+      {aiEnabled && standings.length > 0 && (
+        <div className="bg-[#0E131F]/90 backdrop-blur-md border border-[#1E2638] rounded-2xl p-3 shadow-xl w-64 max-h-72 overflow-auto">
+          <div className="text-[9px] font-bold tracking-[0.18em] text-slate-500 mb-2">RACE CLASSIFICATION</div>
+          {standings.map((standing) => (
+            <div key={standing.name} className={`flex items-center gap-2 py-1 text-[10px] ${standing.isPlayer ? 'text-white font-bold' : 'text-slate-400'}`}>
+              <span className="w-5 text-right text-slate-500">{standing.rank}</span>
+              <span className="w-1.5 h-1.5 rounded-full" style={{ backgroundColor: standing.color }} />
+              <span className="flex-1 truncate">{standing.name}</span>
+              <span className="tabular-nums">{standing.rank === 1 ? 'LEADER' : `+${standing.gapMeters}m`}</span>
+            </div>
+          ))}
         </div>
       )}
 
@@ -223,16 +215,6 @@ export const RaceHUD: React.FC<RaceHUDProps> = ({
           </span>
         </div>
 
-        {aiEnabled && aiTelemetry?.bestLapTime && (
-          <div className="pt-1.5 border-t border-[#1E2638]/60 flex items-center justify-between text-[11px]">
-            <span className="flex items-center gap-1 text-cyan-400 font-sans font-bold">
-              AI BEST
-            </span>
-            <span className="font-bold text-cyan-300 font-mono">
-              {formatTime(aiTelemetry.bestLapTime)}
-            </span>
-          </div>
-        )}
       </div>
 
       {/* 4. Off Track Warning Badge */}

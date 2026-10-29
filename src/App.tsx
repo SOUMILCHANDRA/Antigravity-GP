@@ -1,15 +1,15 @@
 import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react';
-import { AppMode, CarState, LapTelemetry, TrackConfig, TrackNode, AICompetitorState, RaceBattleState, AIDifficulty, EditorTool, StudioStage, EditorViewMode } from './types/track';
+import { AppMode, CarState, LapTelemetry, TrackConfig, TrackNode, AICompetitorState, RaceBattleState, RaceStanding, AIDifficulty, EditorTool, StudioStage, EditorViewMode } from './types/track';
 import { EMPTY_TRACK } from './utils/presets';
 import { buildTrackCurve, sampleSplinePoints, getNearestSplinePoint, checkFinishLineCrossing } from './utils/spline';
 import { addAutomaticGradeSeparation } from './utils/gradeSeparation';
 import { resolvePitLaneConfig } from './utils/pitLane';
 import { createInitialCarState, updateCarPhysics, resetVehicle } from './utils/physics';
-import { createAICompetitor, updateAICompetitor, resolveCarCollision, calculateRaceBattle } from './utils/aiCompetitor';
+import { createAICompetitor, updateAICompetitor, resolveCarCollision, calculateRaceStandings } from './utils/aiCompetitor';
 import { generateIdealRacingLine } from './utils/racingLine';
 import { audioEngine } from './utils/audio';
 import { TrackHistory } from './utils/history';
-import { CAR_PRESETS, DEFAULT_PLAYER_CAR_ID, DEFAULT_AI_CAR_ID } from './utils/carPresets';
+import { CAR_PRESETS, DEFAULT_PLAYER_CAR_ID } from './utils/carPresets';
 import { calculateTrackStats, validateTrackGeometry } from './utils/trackAnalysis';
 
 import { Header } from './components/Header';
@@ -31,7 +31,6 @@ import { RaceHUD } from './components/UI/RaceHUD';
 import { formatTime } from './utils/time';
 import { Minimap } from './components/UI/Minimap';
 import { LapResultModal } from './components/UI/LapResultModal';
-import { CarSelectModal } from './components/UI/CarSelectModal';
 import { KeyboardShortcutsModal } from './components/UI/KeyboardShortcutsModal';
 
 const DRAFT_STORAGE_KEY = 'antigravity-gp:last-circuit';
@@ -66,10 +65,8 @@ export function App() {
   const [isCalibrating, setIsCalibrating] = useState<boolean>(false);
   const [calibrationPoints, setCalibrationPoints] = useState<[{ x: number; y: number } | null, { x: number; y: number } | null]>([null, null]);
 
-  // Vehicle Selection Garage State
-  const [playerCarId, setPlayerCarId] = useState<string>(DEFAULT_PLAYER_CAR_ID);
-  const [aiCarId, setAiCarId] = useState<string>(DEFAULT_AI_CAR_ID);
-  const [showGarageModal, setShowGarageModal] = useState<boolean>(false);
+  const playerCarId = DEFAULT_PLAYER_CAR_ID;
+  const [gridSize, setGridSize] = useState(8);
 
   // Stage 5 Show Mode & 3D Flythrough State
   const [is3DFlythrough, setIs3DFlythrough] = useState<boolean>(false);
@@ -155,9 +152,10 @@ export function App() {
   // AI Competitor & Duel Battle State
   const [aiEnabled, setAiEnabled] = useState<boolean>(false);
   const [aiDifficulty, setAiDifficulty] = useState<AIDifficulty>('challenger');
-  const [aiCarState, setAiCarState] = useState<AICompetitorState>(createAICompetitor([], 'challenger', DEFAULT_AI_CAR_ID));
-  const aiCarStateRef = useRef<AICompetitorState>(createAICompetitor([], 'challenger', DEFAULT_AI_CAR_ID));
-  const aiPassedSector2Ref = useRef<boolean>(false);
+  const [aiCarStates, setAiCarStates] = useState<AICompetitorState[]>([]);
+  const aiCarStatesRef = useRef<AICompetitorState[]>([]);
+  const aiPassedSector2Refs = useRef<{ current: boolean }[]>([]);
+  const [raceStandings, setRaceStandings] = useState<RaceStanding[]>([]);
   const raceBattleStateRef = useRef<RaceBattleState>({
     playerRank: 1,
     aiRank: 2,
@@ -368,14 +366,13 @@ export function App() {
   };
 
   // Authoritative Car & AI Spawn & Reset
-  const resetCarOnTrack = useCallback((resetAllTelemetry = false, pCarId = playerCarId, aCarId = aiCarId) => {
+  const resetCarOnTrack = useCallback((resetAllTelemetry = false) => {
     clearAllInputs();
     raceTimerStartedRef.current = false;
     if (splinePoints.length < 2) return;
 
     // Reset Player Car
-    const fresh = resetVehicle(createInitialCarState(pCarId), splinePoints);
-    fresh.carId = pCarId;
+    const fresh = resetVehicle(createInitialCarState(), splinePoints);
     carStateRef.current = fresh;
     prevCarPosRef.current = { x: fresh.position.x, z: fresh.position.z };
     prevSplineIndexRef.current = 0;
@@ -384,10 +381,11 @@ export function App() {
     setLapToast(null);
 
     // Reset AI Competitor
-    const freshAI = createAICompetitor(splinePoints, aiDifficulty, aCarId);
-    aiCarStateRef.current = freshAI;
-    aiPassedSector2Ref.current = false;
-    setAiCarState(freshAI);
+    const freshAIs = Array.from({ length: gridSize - 1 }, (_, index) => createAICompetitor(splinePoints, aiDifficulty, index + 1));
+    aiCarStatesRef.current = freshAIs;
+    aiPassedSector2Refs.current = freshAIs.map(() => ({ current: false }));
+    setAiCarStates(freshAIs);
+    setRaceStandings(calculateRaceStandings(fresh.position, INITIAL_LAP_TELEMETRY, freshAIs, splinePoints));
 
     const initialBattle: RaceBattleState = {
       playerRank: 1,
@@ -412,19 +410,7 @@ export function App() {
         return next;
       });
     }
-  }, [splinePoints, clearAllInputs, aiDifficulty, playerCarId, aiCarId]);
-
-  // Handle switching player car
-  const handleSelectPlayerCar = (newCarId: string) => {
-    setPlayerCarId(newCarId);
-    resetCarOnTrack(false, newCarId, aiCarId);
-  };
-
-  // Handle switching AI rival car
-  const handleSelectAiCar = (newCarId: string) => {
-    setAiCarId(newCarId);
-    resetCarOnTrack(false, playerCarId, newCarId);
-  };
+  }, [splinePoints, clearAllInputs, aiDifficulty, gridSize]);
 
   // Completely reset state whenever switching modes
   useEffect(() => {
@@ -443,10 +429,12 @@ export function App() {
     setLapTelemetry(INITIAL_LAP_TELEMETRY);
     lapTelemetryRef.current = INITIAL_LAP_TELEMETRY;
     setLapToast(null);
-    const freshAI = createAICompetitor(splinePoints, aiDifficulty, aiCarId);
-    aiCarStateRef.current = freshAI;
-    setAiCarState(freshAI);
-  }, [track.nodes, splinePoints, aiDifficulty, aiCarId]);
+    const freshAIs = Array.from({ length: gridSize - 1 }, (_, index) => createAICompetitor(splinePoints, aiDifficulty, index + 1));
+    aiCarStatesRef.current = freshAIs;
+    aiPassedSector2Refs.current = freshAIs.map(() => ({ current: false }));
+    setAiCarStates(freshAIs);
+    setRaceStandings(calculateRaceStandings(carStateRef.current.position, INITIAL_LAP_TELEMETRY, freshAIs, splinePoints));
+  }, [track.nodes, splinePoints, aiDifficulty, gridSize]);
 
   // Robust Keyboard Event Listeners with Window Blur Guard
   useEffect(() => {
@@ -458,11 +446,6 @@ export function App() {
       // R Key Reset: resets vehicle to start line and restarts current lap timer
       if (e.code === 'KeyR' && mode === 'race') {
         resetCarOnTrack(false);
-      }
-
-      // G Key: Open Garage
-      if (e.code === 'KeyG') {
-        setShowGarageModal(prev => !prev);
       }
 
       if ((e.ctrlKey || e.metaKey) && e.code === 'KeyZ') {
@@ -511,63 +494,74 @@ export function App() {
       };
 
       // 1. Step Player Physics using carStateRef
-      const pSpecs = CAR_PRESETS[playerCarId] || CAR_PRESETS[DEFAULT_PLAYER_CAR_ID];
+      const pSpecs = CAR_PRESETS[DEFAULT_PLAYER_CAR_ID];
       let nextState = updateCarPhysics(carStateRef.current, inputs, splinePoints, dt, pSpecs, raceTrackConfig);
 
       // 2. Step AI Competitor Physics & Intelligent Racing Logic (if enabled)
       if (aiEnabled && splinePoints.length >= 4) {
-        const battle = raceBattleStateRef.current;
-        const progressDiff = battle.gapMeters * (battle.playerRank === 1 ? 1 : -1);
-
-        const { nextAIState } = updateAICompetitor({
-          aiState: aiCarStateRef.current,
-          playerPos: nextState.position,
-          playerSpeedKmh: nextState.speedKmh,
-          playerThrottle: inputs.throttle,
-          splinePoints,
-          racingLinePoints,
-          deltaSeconds: dt,
-          aiPassedSector2Ref,
-          difficulty: aiDifficulty,
-          playerProgressDiff: progressDiff
+        const currentAIs = aiCarStatesRef.current;
+        const updatedAIs = currentAIs.map((ai, index) => {
+          const nearbyCars = [nextState, ...currentAIs.filter((_, otherIndex) => otherIndex !== index)];
+          return updateAICompetitor({
+            aiState: ai,
+            playerPos: nextState.position,
+            playerSpeedKmh: nextState.speedKmh,
+            playerThrottle: inputs.throttle,
+            splinePoints,
+            racingLinePoints,
+            deltaSeconds: dt,
+            aiPassedSector2Ref: aiPassedSector2Refs.current[index],
+            difficulty: aiDifficulty,
+            nearbyCars
+          }).nextAIState;
         });
 
-        // 3. Realistic Car-to-Car Physical Collision Resolution
-        const collisionResolved = resolveCarCollision(nextState, nextAIState);
-        nextState = collisionResolved.playerState;
-        const resolvedAI = collisionResolved.aiState;
+        for (let index = 0; index < updatedAIs.length; index++) {
+          const resolved = resolveCarCollision(nextState, updatedAIs[index]);
+          nextState = resolved.playerState;
+          updatedAIs[index] = resolved.aiState;
+        }
+        for (let first = 0; first < updatedAIs.length; first++) {
+          for (let second = first + 1; second < updatedAIs.length; second++) {
+            const resolved = resolveCarCollision(updatedAIs[first], updatedAIs[second]);
+            updatedAIs[first] = resolved.playerState as AICompetitorState;
+            updatedAIs[second] = resolved.aiState;
+          }
+        }
 
-        aiCarStateRef.current = resolvedAI;
-        setAiCarState(resolvedAI);
-
-        // 4. Update Live Race Battle Telemetry (P1/P2 & Gap)
-        const newBattle = calculateRaceBattle(
-          nextState.position,
-          lapTelemetryRef.current,
-          resolvedAI.position,
-          resolvedAI.lapTelemetry,
-          splinePoints,
-          resolvedAI.hasStartedRace ?? false
-        );
+        aiCarStatesRef.current = updatedAIs;
+        setAiCarStates(updatedAIs);
+        const standings = calculateRaceStandings(nextState.position, lapTelemetryRef.current, updatedAIs, splinePoints);
+        setRaceStandings(standings);
+        const playerStanding = standings.find((standing) => standing.isPlayer);
+        const adjacentStanding = playerStanding
+          ? standings[playerStanding.rank === 1 ? 1 : playerStanding.rank - 2]
+          : undefined;
+        const battleGap = playerStanding?.rank === 1
+          ? (adjacentStanding?.gapMeters ?? 0)
+          : Math.max(0, (playerStanding?.gapMeters ?? 0) - (adjacentStanding?.gapMeters ?? 0));
+        const newBattle: RaceBattleState = {
+          playerRank: playerStanding?.rank ?? 1,
+          aiRank: adjacentStanding?.rank ?? 2,
+          gapMeters: battleGap,
+          gapSeconds: Math.round((battleGap / 50) * 10) / 10
+        };
         raceBattleStateRef.current = newBattle;
         setRaceBattleState(newBattle);
 
-        // 5. Update Spatial Rival Engine Audio
-        const dx = resolvedAI.position.x - nextState.position.x;
-        const dz = resolvedAI.position.z - nextState.position.z;
+        // Mix the nearest rival only; all other cars remain lightweight and silent.
+        const nearestAI = updatedAIs.reduce<AICompetitorState | null>((nearest, ai) => {
+          if (!nearest) return ai;
+          return Math.hypot(ai.position.x - nextState.position.x, ai.position.z - nextState.position.z)
+            < Math.hypot(nearest.position.x - nextState.position.x, nearest.position.z - nextState.position.z) ? ai : nearest;
+        }, null);
+        const dx = (nearestAI?.position.x ?? 0) - nextState.position.x;
+        const dz = (nearestAI?.position.z ?? 0) - nextState.position.z;
         const dist = Math.hypot(dx, dz);
         const yaw = nextState.rotation.y;
         const localX = dx * Math.cos(yaw) - dz * Math.sin(yaw);
         const panX = Math.max(-1, Math.min(1, localX / Math.max(3, dist)));
-
-        audioEngine.updateRivalEngineSound(
-          resolvedAI.speedKmh,
-          resolvedAI.throttle,
-          dist,
-          panX,
-          true,
-          aiCarId
-        );
+        audioEngine.updateRivalEngineSound(nearestAI?.speedKmh ?? 0, nearestAI?.throttle ?? 0, dist, panX, true);
       } else {
         audioEngine.updateRivalEngineSound(0, 0, 999, 0, false);
       }
@@ -684,7 +678,7 @@ export function App() {
 
     animFrameId = requestAnimationFrame(loop);
     return () => cancelAnimationFrame(animFrameId);
-  }, [mode, splinePoints, racingLinePoints, raceTrackConfig, aiEnabled, aiDifficulty, playerCarId, aiCarId]);
+  }, [mode, splinePoints, racingLinePoints, raceTrackConfig, aiEnabled, aiDifficulty]);
 
   // Auto-dismiss lap toast notification after 3.5 seconds
   useEffect(() => {
@@ -742,8 +736,6 @@ export function App() {
         onExportTrack={handleExportTrack}
         onImportTrack={handleImportTrack}
         circuitLength={circuitLength}
-        playerCarId={playerCarId}
-        onOpenGarage={() => setShowGarageModal(true)}
         studioStage={studioStage}
         onStageChange={setStudioStage}
         viewMode={editorViewMode}
@@ -934,10 +926,8 @@ export function App() {
               splinePoints={splinePoints}
               trackConfig={raceTrackConfig}
               carState={carState}
-              aiCarState={aiEnabled ? aiCarState : null}
+              aiCarStates={aiEnabled ? aiCarStates : []}
               showRacingLine={showRacingLine}
-              playerCarId={playerCarId}
-              aiCarId={aiCarId}
             />
 
             <RaceHUD
@@ -951,21 +941,18 @@ export function App() {
               battleState={aiEnabled ? raceBattleState : null}
               aiEnabled={aiEnabled}
               onToggleAI={() => setAiEnabled(prev => !prev)}
-              aiTelemetry={aiCarState.lapTelemetry}
               difficulty={aiDifficulty}
               onChangeDifficulty={cycleAIDifficulty}
-              isDrafting={aiCarState.isDrafting}
-              isOvertaking={aiCarState.isOvertaking}
-              playerCarId={playerCarId}
-              onOpenGarage={() => setShowGarageModal(true)}
+              gridSize={gridSize}
+              onGridSizeChange={setGridSize}
+              standings={raceStandings}
             />
             
             <Minimap
               splinePoints={splinePoints}
               carPosition={carState.position}
               carRotationY={carState.rotation.y}
-              aiPosition={aiEnabled ? aiCarState.position : null}
-              aiRotationY={aiEnabled ? aiCarState.rotation.y : undefined}
+              aiCars={aiEnabled ? aiCarStates.map((ai) => ({ position: ai.position, rotationY: ai.rotation.y, color: ai.color })) : []}
             />
 
             {showLapModal && (
@@ -980,17 +967,6 @@ export function App() {
               />
             )}
           </div>
-        )}
-
-        {/* Global Garage Car Selector Modal */}
-        {showGarageModal && (
-          <CarSelectModal
-            playerCarId={playerCarId}
-            aiCarId={aiCarId}
-            onSelectPlayerCar={handleSelectPlayerCar}
-            onSelectAiCar={handleSelectAiCar}
-            onClose={() => setShowGarageModal(false)}
-          />
         )}
 
         {/* Global Keyboard Shortcuts Cheatsheet Modal */}

@@ -1,7 +1,6 @@
 import React from 'react';
-import { Activity, ArrowDownToLine, CarFront, CircleHelp, DraftingCompass, Flag, Layers3, Upload, Volume2, VolumeX } from 'lucide-react';
+import { Activity, ArrowDownToLine, CircleHelp, DraftingCompass, Flag, Layers3, Upload, Volume2, VolumeX } from 'lucide-react';
 import { AppMode, TrackConfig, StudioStage, EditorViewMode } from '../types/track';
-import { CAR_PRESETS, DEFAULT_PLAYER_CAR_ID } from '../utils/carPresets';
 
 interface HeaderProps {
   mode: AppMode;
@@ -12,8 +11,6 @@ interface HeaderProps {
   onExportTrack: () => void;
   onImportTrack: (e: React.ChangeEvent<HTMLInputElement>) => void;
   circuitLength: number;
-  playerCarId: string;
-  onOpenGarage: () => void;
   studioStage?: StudioStage;
   onStageChange?: (stage: StudioStage) => void;
   viewMode?: EditorViewMode;
@@ -30,11 +27,10 @@ const stages: Array<{ id: StudioStage; number: string; title: string; sub: strin
 
 export const Header: React.FC<HeaderProps> = ({
   mode, setMode, currentTrack, isMuted, onToggleMute, onExportTrack, onImportTrack,
-  circuitLength, playerCarId, onOpenGarage, studioStage = 'shape', onStageChange,
+  circuitLength, studioStage = 'shape', onStageChange,
   viewMode = '2d', onViewModeChange, onOpenShortcuts, saveState = 'saved'
 }) => {
   const isValidTrack = currentTrack.isClosed && currentTrack.nodes.length >= 3;
-  const currentCar = CAR_PRESETS[playerCarId] || CAR_PRESETS[DEFAULT_PLAYER_CAR_ID];
   const activeStageIndex = stages.findIndex(stage => stage.id === studioStage);
 
   return (
@@ -65,7 +61,6 @@ export const Header: React.FC<HeaderProps> = ({
           {(['2d', 'split', '3d'] as EditorViewMode[]).map(view => <button key={view} className={viewMode === view ? 'is-active' : ''} onClick={() => onViewModeChange?.(view)} title={`${view.toUpperCase()} editor view`}>{view === 'split' ? <Layers3 size={14} /> : view.toUpperCase()}</button>)}
         </div>}
         <span className="header-divider" />
-        {mode === 'builder' && <button className="header-icon-button header-car-button" onClick={onOpenGarage} title={`Garage · ${currentCar.name}`}><CarFront size={16} /><span>{currentCar.shortName}</span></button>}
         <button className="header-icon-button" onClick={onToggleMute} title={isMuted ? 'Enable sound' : 'Mute sound'} aria-label={isMuted ? 'Enable sound' : 'Mute sound'}>{isMuted ? <VolumeX size={16} /> : <Volume2 size={16} />}</button>
         <button className="header-icon-button" onClick={onOpenShortcuts} title="Keyboard shortcuts" aria-label="Keyboard shortcuts"><CircleHelp size={16} /></button>
         {mode === 'builder' ? <div className="header-file-actions">

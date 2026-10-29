@@ -134,6 +134,9 @@ export type AIDifficulty = 'rookie' | 'challenger' | 'legend';
 export interface AICompetitorState extends CarState {
   name: string;
   color: string;
+  gridSlot: number;
+  raceLineOffset: number;
+  paceFactor: number;
   targetSpeedKmh: number;
   lapTelemetry: LapTelemetry;
   hasStartedRace?: boolean;
@@ -141,6 +144,14 @@ export interface AICompetitorState extends CarState {
   isDrafting?: boolean;
   isOvertaking?: boolean;
   carId?: string;
+}
+
+export interface RaceStanding {
+  rank: number;
+  name: string;
+  color: string;
+  gapMeters: number;
+  isPlayer: boolean;
 }
 
 export interface RaceBattleState {

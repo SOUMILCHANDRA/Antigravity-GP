@@ -61,7 +61,6 @@ export const KeyboardShortcutsModal: React.FC<KeyboardShortcutsModalProps> = ({
         { keys: ['A', 'D', '←', '→'], description: 'Steer Left / Right' },
         { keys: ['R'], description: 'Single Authoritative Reset vehicle to track' },
         { keys: ['C'], description: 'Cycle 3D camera (Chase / Cockpit / Overhead)' },
-        { keys: ['G'], description: 'Open Vehicle Garage & select competitor car' }
       ]
     }
   ];

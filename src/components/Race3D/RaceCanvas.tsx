@@ -11,20 +11,16 @@ interface RaceCanvasProps {
   splinePoints: SplinePoint[];
   trackConfig: TrackConfig;
   carState: CarState;
-  aiCarState?: AICompetitorState | null;
+  aiCarStates?: AICompetitorState[];
   showRacingLine?: boolean;
-  playerCarId?: string;
-  aiCarId?: string;
 }
 
 export const RaceCanvas: React.FC<RaceCanvasProps> = ({
   splinePoints,
   trackConfig,
   carState,
-  aiCarState,
+  aiCarStates = [],
   showRacingLine = true,
-  playerCarId,
-  aiCarId
 }) => {
   return (
     <div className="w-full h-full bg-[#0B0E14] relative">
@@ -38,17 +34,17 @@ export const RaceCanvas: React.FC<RaceCanvasProps> = ({
         <Environment splinePoints={splinePoints} />
         <TrackMesh splinePoints={splinePoints} trackConfig={trackConfig} />
         <IdealRacingLine splinePoints={splinePoints} visible={showRacingLine} />
-        <F1Car carState={carState} carId={playerCarId || carState.carId} />
-        {aiCarState && (
+        <F1Car carState={carState} />
+        {aiCarStates.map((aiCarState) => (
           <F1Car
+            key={aiCarState.name}
             carState={aiCarState}
             isAI={true}
-            carId={aiCarId || aiCarState.carId}
             liveryColor={aiCarState.color || '#00E5FF'}
             isDrafting={aiCarState.isDrafting}
             isOvertaking={aiCarState.isOvertaking}
           />
-        )}
+        ))}
       </Canvas>
     </div>
   );

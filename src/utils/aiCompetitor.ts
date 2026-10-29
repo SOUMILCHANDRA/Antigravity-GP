@@ -1,4 +1,4 @@
-import { AICompetitorState, AIDifficulty, CarState, LapTelemetry, RaceBattleState, SplinePoint, Vector3D } from '../types/track';
+import { AICompetitorState, AIDifficulty, CarState, LapTelemetry, RaceBattleState, RaceStanding, SplinePoint, Vector3D } from '../types/track';
 import { getNearestSplinePoint, checkFinishLineCrossing } from './spline';
 import { RacingLinePoint } from './racingLine';
 import { CAR_PRESETS, DEFAULT_AI_CAR_ID } from './carPresets';
@@ -19,10 +19,13 @@ export const INITIAL_AI_TELEMETRY: LapTelemetry = {
 export function createAICompetitor(
   splinePoints: SplinePoint[],
   difficulty: AIDifficulty = 'challenger',
-  carId: string = DEFAULT_AI_CAR_ID
+  gridSlot = 1
 ): AICompetitorState {
-  const specs = CAR_PRESETS[carId] || CAR_PRESETS[DEFAULT_AI_CAR_ID];
-  const aiColor = specs.aiDefaultColor || '#00E5FF';
+  const palette = ['#00C2FF', '#FFB000', '#A855F7', '#22C55E', '#F43F5E', '#F97316', '#38BDF8', '#E879F9', '#84CC16', '#FACC15'];
+  const aiColor = palette[(gridSlot - 1) % palette.length];
+  const name = `RIVAL ${String(gridSlot + 1).padStart(2, '0')}`;
+  const raceLineOffset = gridSlot % 2 === 1 ? 0.75 : -0.75;
+  const paceFactor = 0.96 + ((gridSlot * 37) % 9) * 0.01;
 
   if (splinePoints.length < 2) {
     return {
@@ -35,20 +38,26 @@ export function createAICompetitor(
       steering: 0,
       offTrack: false,
       skidding: false,
-      name: `RIVAL [${specs.shortName}]`,
+      name,
       color: aiColor,
+      gridSlot,
+      raceLineOffset,
+      paceFactor,
       targetSpeedKmh: 0,
       lapTelemetry: { ...INITIAL_AI_TELEMETRY },
       hasStartedRace: false,
       difficulty,
       isDrafting: false,
       isOvertaking: false,
-      carId
     };
   }
 
-  const p0 = splinePoints[0];
-  const p1 = splinePoints[1];
+  const trackLength = splinePoints[splinePoints.length - 1].distance || 1000;
+  const row = Math.ceil(gridSlot / 2);
+  const distanceBehind = row * 8.2;
+  const behindIndex = Math.round((1 - distanceBehind / trackLength) * splinePoints.length + splinePoints.length) % splinePoints.length;
+  const p0 = splinePoints[behindIndex];
+  const p1 = splinePoints[(behindIndex + 1) % splinePoints.length];
 
   const dx = p1.position.x - p0.position.x;
   const dz = p1.position.z - p0.position.z;
@@ -59,9 +68,9 @@ export function createAICompetitor(
   // Lateral binormal in X-Z plane: (-forward.z, 0, forward.x)
   const binormal = { x: -forward.z, z: forward.x };
 
-  // Slot 2: 4.5m behind player along track tangent, offset 2.5m to the right side of the track
-  const spawnX = p0.position.x - forward.x * 4.5 + binormal.x * 2.5;
-  const spawnZ = p0.position.z - forward.z * 4.5 + binormal.z * 2.5;
+  const laneSide = gridSlot % 2 === 1 ? 1 : -1;
+  const spawnX = p0.position.x + binormal.x * laneSide * 2.3;
+  const spawnZ = p0.position.z + binormal.z * laneSide * 2.3;
   const spawnAlign = computeVehicleSurfaceAlignment(spawnX, spawnZ, yaw, p0, 0.14);
 
   return {
@@ -74,15 +83,17 @@ export function createAICompetitor(
     steering: 0,
     offTrack: false,
     skidding: false,
-    name: `RIVAL [${specs.shortName}]`,
+    name,
     color: aiColor,
+    gridSlot,
+    raceLineOffset,
+    paceFactor,
     targetSpeedKmh: 0,
     lapTelemetry: { ...INITIAL_AI_TELEMETRY },
     hasStartedRace: false,
     difficulty,
     isDrafting: false,
     isOvertaking: false,
-    carId
   };
 }
 
@@ -146,6 +157,7 @@ export interface AIUpdateParams {
   aiPassedSector2Ref: { current: boolean };
   difficulty?: AIDifficulty;
   playerProgressDiff?: number; // Positive if player is ahead, negative if AI leads
+  nearbyCars?: CarState[];
 }
 
 /**
@@ -174,7 +186,8 @@ export function updateAICompetitor(params: AIUpdateParams): {
     deltaSeconds,
     aiPassedSector2Ref,
     difficulty = aiState.difficulty || 'challenger',
-    playerProgressDiff = 0
+    playerProgressDiff = 0,
+    nearbyCars = []
   } = params;
 
   const n = splinePoints.length;
@@ -248,7 +261,7 @@ export function updateAICompetitor(params: AIUpdateParams): {
   }
 
   // 3. Dynamic Push Factor & Car Specs
-  const aiSpecs = CAR_PRESETS[aiState.carId || DEFAULT_AI_CAR_ID] || CAR_PRESETS[DEFAULT_AI_CAR_ID];
+  const aiSpecs = CAR_PRESETS[DEFAULT_AI_CAR_ID];
   const aiPhys = aiSpecs.physics;
 
   // When chasing player, AI pushes hard in qualifying pace (+14% performance boost)
@@ -264,7 +277,7 @@ export function updateAICompetitor(params: AIUpdateParams): {
   const baseBrakeDecel = aiPhys.brakeDecel * 0.88;
   const aBrake = difficulty === 'legend' ? baseBrakeDecel * 1.08 : (difficulty === 'rookie' ? baseBrakeDecel * 0.88 : baseBrakeDecel);
   const baseMaxSpeedMs = aiPhys.maxForwardSpeedMs;
-  let targetSpeedMs = (difficulty === 'legend' ? baseMaxSpeedMs : (difficulty === 'rookie' ? baseMaxSpeedMs * 0.82 : baseMaxSpeedMs * 0.94)) * pushFactor;
+  let targetSpeedMs = (difficulty === 'legend' ? baseMaxSpeedMs : (difficulty === 'rookie' ? baseMaxSpeedMs * 0.82 : baseMaxSpeedMs * 0.94)) * pushFactor * (aiState.paceFactor || 1);
 
   const scanOffsets = [2, 4, 7, 11, 16, 22, 29, 37];
   for (const s of scanOffsets) {
@@ -323,13 +336,13 @@ export function updateAICompetitor(params: AIUpdateParams): {
   const targetSpline = splinePoints[targetIdx];
 
   // 6. Ideal Racing Line Offset (Out-In-Out Apexing)
-  let targetLateralOffset = 0;
+  let targetLateralOffset = aiState.raceLineOffset || 0;
   if (racingLinePoints && racingLinePoints.length === n) {
     const rPoint = racingLinePoints[targetIdx];
     const offX = rPoint.position.x - targetSpline.position.x;
     const offZ = rPoint.position.z - targetSpline.position.z;
     const idealOffset = offX * targetSpline.binormal.x + offZ * targetSpline.binormal.z;
-    targetLateralOffset = Math.max(-maxSafeOffset * 0.75, Math.min(maxSafeOffset * 0.75, idealOffset));
+    targetLateralOffset = Math.max(-maxSafeOffset * 0.75, Math.min(maxSafeOffset * 0.75, idealOffset + (aiState.raceLineOffset || 0)));
   }
 
   // 7. Tactical Racecraft (Slipstream Tow, Slingshot Pass, Defense & Space)
@@ -374,6 +387,22 @@ export function updateAICompetitor(params: AIUpdateParams): {
     }
   }
 
+  // Spread the field around slower cars instead of letting every AI converge on one racing line.
+  for (const other of nearbyCars) {
+    if (Math.abs(other.position.y - aiState.position.y) > 2.2) continue;
+    const relX = other.position.x - currentPosX;
+    const relZ = other.position.z - currentPosZ;
+    if (Math.hypot(relX, relZ) > 17) continue;
+    const otherForward = relX * Math.sin(currentYaw) + relZ * Math.cos(currentYaw);
+    const otherLateral = relX * Math.cos(currentYaw) - relZ * Math.sin(currentYaw);
+    if (otherForward > -3 && otherForward < 15 && Math.abs(otherLateral) < 3.4) {
+      const currentLane = currentLatOffset;
+      const passDirection = otherLateral >= 0 ? -1 : 1;
+      targetLateralOffset = Math.max(-maxSafeOffset * 0.84, Math.min(maxSafeOffset * 0.84, currentLane + passDirection * 2.8));
+      break;
+    }
+  }
+
   // Target waypoint in 3D world space
   const targetBinormal = targetSpline.binormal;
   const targetPos = {
@@ -384,7 +413,7 @@ export function updateAICompetitor(params: AIUpdateParams): {
 
   // 8. Throttle & Braking Dynamics with DRS Boost
   const baseDriveAccel = aiPhys.maxDriveAccel;
-  let driveAccel = (difficulty === 'legend' ? baseDriveAccel * 1.06 : (difficulty === 'rookie' ? baseDriveAccel * 0.88 : baseDriveAccel)) * pushFactor;
+  let driveAccel = (difficulty === 'legend' ? baseDriveAccel * 1.06 : (difficulty === 'rookie' ? baseDriveAccel * 0.88 : baseDriveAccel)) * pushFactor * (aiState.paceFactor || 1);
   let dragCoeff = aiPhys.dragCoeff;
 
   if (isDrafting) {
@@ -565,10 +594,11 @@ export function resolveCarCollision(
   const dx = player.position.x - ai.position.x;
   const dz = player.position.z - ai.position.z;
   const dist = Math.hypot(dx, dz);
+  const verticalGap = Math.abs(player.position.y - ai.position.y);
 
   const minSeparation = 2.4; // Real 1:1 F1 car width with side-pod clearance
 
-  if (dist < minSeparation && dist > 0.001) {
+  if (verticalGap < 1.4 && dist < minSeparation && dist > 0.001) {
     const overlap = minSeparation - dist;
     const nx = dx / dist;
     const nz = dz / dist;
@@ -680,4 +710,45 @@ export function calculateRaceBattle(
     gapSeconds,
     gapMeters
   };
+}
+
+export function calculateRaceStandings(
+  playerPos: Vector3D,
+  playerTelemetry: LapTelemetry,
+  opponents: AICompetitorState[],
+  splinePoints: SplinePoint[]
+): RaceStanding[] {
+  if (splinePoints.length < 2) return [];
+  const trackLength = splinePoints[splinePoints.length - 1].distance || 1;
+  const start = splinePoints[0];
+  const getProgress = (position: Vector3D, laps: number) => {
+    const nearest = getNearestSplinePoint(position, splinePoints);
+    let distance = nearest.point?.distance ?? 0;
+    if (laps === 0) {
+      const dx = position.x - start.position.x;
+      const dz = position.z - start.position.z;
+      const signedFromLine = dx * start.tangent.x + dz * start.tangent.z;
+      if (signedFromLine < 0 && (distance > trackLength * 0.7 || Math.hypot(dx, dz) < 25)) distance = signedFromLine;
+    }
+    return laps * trackLength + distance;
+  };
+
+  const field = [
+    { name: 'YOU', color: '#E10600', progress: getProgress(playerPos, playerTelemetry.completedLaps), isPlayer: true },
+    ...opponents.map((opponent) => ({
+      name: opponent.name,
+      color: opponent.color,
+      progress: getProgress(opponent.position, opponent.lapTelemetry.completedLaps),
+      isPlayer: false
+    }))
+  ].sort((a, b) => b.progress - a.progress);
+  const leaderProgress = field[0]?.progress ?? 0;
+
+  return field.map((entry, index) => ({
+    rank: index + 1,
+    name: entry.name,
+    color: entry.color,
+    gapMeters: Math.max(0, Math.round(leaderProgress - entry.progress)),
+    isPlayer: entry.isPlayer
+  }));
 }

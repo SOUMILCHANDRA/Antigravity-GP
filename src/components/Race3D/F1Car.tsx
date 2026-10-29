@@ -1,226 +1,115 @@
-import React, { useRef, useMemo, Suspense } from 'react';
+import React, { memo, useRef } from 'react';
 import { useFrame } from '@react-three/fiber';
-import { useGLTF } from '@react-three/drei';
 import * as THREE from 'three';
-import * as SkeletonUtils from 'three/examples/jsm/utils/SkeletonUtils.js';
+import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 import { CarState } from '../../types/track';
-import { CAR_PRESETS, CarSpecs, DEFAULT_PLAYER_CAR_ID, DEFAULT_AI_CAR_ID } from '../../utils/carPresets';
 
 interface F1CarProps {
   carState: CarState;
   isAI?: boolean;
-  carId?: string;
   liveryColor?: string;
   isDrafting?: boolean;
   isOvertaking?: boolean;
 }
 
-// Generates a soft, feathered radial shadow texture for realistic ground ambient occlusion
-function createSoftShadowTexture(): THREE.CanvasTexture {
-  const canvas = document.createElement('canvas');
-  canvas.width = 128;
-  canvas.height = 128;
-  const ctx = canvas.getContext('2d')!;
+type MaterialGroup = 'livery' | 'carbon' | 'tire' | 'metal' | 'helmet' | 'light';
+type CarGeometrySet = Record<MaterialGroup, THREE.BufferGeometry>;
 
-  const gradient = ctx.createRadialGradient(64, 64, 10, 64, 64, 60);
-  gradient.addColorStop(0, 'rgba(0, 0, 0, 0.7)');
-  gradient.addColorStop(0.5, 'rgba(0, 0, 0, 0.35)');
-  gradient.addColorStop(1, 'rgba(0, 0, 0, 0)');
+function makeCarGeometry(): CarGeometrySet {
+  const parts: Record<MaterialGroup, THREE.BufferGeometry[]> = {
+    livery: [], carbon: [], tire: [], metal: [], helmet: [], light: []
+  };
+  const add = (group: MaterialGroup, geometry: THREE.BufferGeometry, position: [number, number, number], rotation: [number, number, number] = [0, 0, 0]) => {
+    const matrix = new THREE.Matrix4().compose(
+      new THREE.Vector3(...position),
+      new THREE.Quaternion().setFromEuler(new THREE.Euler(...rotation)),
+      new THREE.Vector3(1, 1, 1)
+    );
+    geometry.applyMatrix4(matrix);
+    parts[group].push(geometry);
+  };
+  const box = (group: MaterialGroup, size: [number, number, number], position: [number, number, number], rotation?: [number, number, number]) =>
+    add(group, new THREE.BoxGeometry(...size), position, rotation);
+  const cylinder = (group: MaterialGroup, radiusTop: number, radiusBottom: number, height: number, position: [number, number, number], rotation: [number, number, number] = [0, 0, 0], radialSegments = 10) =>
+    add(group, new THREE.CylinderGeometry(radiusTop, radiusBottom, height, radialSegments), position, rotation);
 
-  ctx.fillStyle = gradient;
-  ctx.fillRect(0, 0, 128, 128);
-
-  return new THREE.CanvasTexture(canvas);
-}
-
-// Universal GLB Car Model Renderer with dynamic AI livery tinting
-function GLBCarModel({
-  modelPath,
-  isAI = false,
-  liveryColor = '#00E5FF'
-}: {
-  modelPath: string;
-  isAI?: boolean;
-  liveryColor?: string;
-}) {
-  const { scene } = useGLTF(modelPath);
-
-  const clonedScene = useMemo(() => {
-    // SkeletonUtils.clone supports both standard Mesh hierarchy and SkinnedMesh/Bone rigging
-    const clone = SkeletonUtils.clone(scene);
-    clone.traverse((child) => {
-      if ((child as THREE.Mesh).isMesh) {
-        const mesh = child as THREE.Mesh;
-        mesh.castShadow = true;
-        mesh.receiveShadow = true;
-
-        if (isAI) {
-          if (Array.isArray(mesh.material)) {
-            mesh.material = mesh.material.map(m => m.clone());
-          } else if (mesh.material) {
-            mesh.material = mesh.material.clone();
-          }
-
-          const mats = Array.isArray(mesh.material) ? mesh.material : [mesh.material];
-          mats.forEach(mat => {
-            if (mat && 'color' in mat) {
-              const stdMat = mat as THREE.MeshStandardMaterial;
-              const n = (stdMat.name || mesh.name || '').toLowerCase();
-              if (
-                n.includes('body') ||
-                n.includes('paint') ||
-                n.includes('chassis') ||
-                n.includes('coloured') ||
-                n.includes('meshpart1') ||
-                n.includes('car_chassis') ||
-                n.includes('fe0_main') ||
-                n.includes('front_bumper')
-              ) {
-                stdMat.color.set(liveryColor);
-                if ('metalness' in stdMat) stdMat.metalness = 0.85;
-                if ('roughness' in stdMat) stdMat.roughness = 0.25;
-              }
-            }
-          });
-        }
-      }
-    });
-    return clone;
-  }, [scene, isAI, liveryColor]);
-
-  return <primitive object={clonedScene} />;
-}
-
-// Fallback Procedural Car (Real proportions: 4.4m length, 2.0m width, 1.0m height)
-function ProceduralCarFallback({ color = '#E10600' }: { color?: string }) {
-  return (
-    <mesh position={[0, 0.35, 0]} castShadow>
-      <boxGeometry args={[2.0, 0.6, 4.4]} />
-      <meshStandardMaterial color={color} metalness={0.7} roughness={0.2} />
-    </mesh>
-  );
-}
-
-class ModelErrorBoundary extends React.Component<
-  { fallback: React.ReactNode; children: React.ReactNode },
-  { hasError: boolean }
-> {
-  constructor(props: { fallback: React.ReactNode; children: React.ReactNode }) {
-    super(props);
-    this.state = { hasError: false };
+  // Floor, sculpted nose, monocoque and sidepods (local +Z faces forward).
+  box('carbon', [1.72, 0.16, 3.65], [0, 0.24, -0.08]);
+  box('livery', [0.72, 0.4, 1.22], [0, 0.49, -0.28]);
+  cylinder('livery', 0.11, 0.39, 1.98, [0, 0.43, 0.65], [Math.PI / 2, 0, 0], 10);
+  for (const side of [-1, 1]) {
+    box('livery', [0.56, 0.34, 1.38], [side * 0.77, 0.43, -0.18]);
+    box('carbon', [0.07, 0.42, 0.58], [side * 1.02, 0.43, 1.54]);
+    box('carbon', [0.07, 0.62, 0.08], [side * 0.42, 0.78, -1.51]);
   }
-  static getDerivedStateFromError() {
-    return { hasError: true };
-  }
-  componentDidCatch(error: any) {
-    console.warn('Model loading fallback triggered:', error);
-  }
-  render() {
-    if (this.state.hasError) {
-      return this.props.fallback;
+
+  // Multi-element front wing and rear wing.
+  box('carbon', [2.12, 0.11, 0.55], [0, 0.27, 1.54]);
+  box('livery', [1.96, 0.07, 0.24], [0, 0.4, 1.38]);
+  box('livery', [1.72, 0.13, 0.34], [0, 1.08, -1.53]);
+  box('carbon', [1.66, 0.08, 0.3], [0, 0.91, -1.49]);
+
+  // Four slicks, hubs, halo, driver helmet and rain light.
+  for (const side of [-1, 1]) {
+    for (const axle of [-1, 1]) {
+      cylinder('tire', 0.38, 0.38, 0.34, [side * 0.99, 0.37, axle * 0.98], [0, 0, Math.PI / 2], 18);
+      cylinder('metal', 0.22, 0.22, 0.04, [side * 1.18, 0.37, axle * 0.98], [0, 0, Math.PI / 2], 12);
     }
-    return this.props.children;
   }
+  box('metal', [0.055, 0.38, 0.055], [0, 0.84, -0.38]);
+  box('metal', [0.68, 0.045, 0.05], [0, 1.02, -0.38]);
+  cylinder('helmet', 0.22, 0.22, 0.22, [0, 0.73, -0.48], [0, 0, 0], 12);
+  box('light', [0.32, 0.08, 0.035], [0, 0.29, -1.94]);
+
+  const geometries = {} as CarGeometrySet;
+  for (const group of Object.keys(parts) as MaterialGroup[]) {
+    const merged = mergeGeometries(parts[group], false);
+    if (!merged) throw new Error(`Unable to build F1 car geometry: ${group}`);
+    merged.computeBoundingSphere();
+    geometries[group] = merged;
+  }
+  return geometries;
 }
 
-export const F1Car: React.FC<F1CarProps> = ({
-  carState,
-  isAI = false,
-  carId,
-  liveryColor,
-  isDrafting = false,
-  isOvertaking = false
-}) => {
-  // VehicleRoot is the authoritative physics object
-  const vehicleRootRef = useRef<THREE.Group | null>(null);
-  const beaconRef = useRef<THREE.Group | null>(null);
-  const shadowTexture = useMemo(() => createSoftShadowTexture(), []);
+const CAR_GEOMETRIES = makeCarGeometry();
+const SHADOW_GEOMETRY = new THREE.PlaneGeometry(2.8, 5.3);
+const SHARED_MATERIALS: Record<Exclude<MaterialGroup, 'livery'>, THREE.MeshStandardMaterial> = {
+  carbon: new THREE.MeshStandardMaterial({ color: '#141820', metalness: 0.68, roughness: 0.38 }),
+  tire: new THREE.MeshStandardMaterial({ color: '#090b0e', roughness: 0.88 }),
+  metal: new THREE.MeshStandardMaterial({ color: '#aeb6bf', metalness: 0.85, roughness: 0.25 }),
+  helmet: new THREE.MeshStandardMaterial({ color: '#f5f6f7', metalness: 0.15, roughness: 0.28 }),
+  light: new THREE.MeshStandardMaterial({ color: '#ff1f35', emissive: '#ff1028', emissiveIntensity: 2.2 })
+};
 
-  // Determine car specifications
-  const activeCarId = carId || carState.carId || (isAI ? DEFAULT_AI_CAR_ID : DEFAULT_PLAYER_CAR_ID);
-  const specs: CarSpecs = CAR_PRESETS[activeCarId] || CAR_PRESETS[DEFAULT_PLAYER_CAR_ID];
-  const effectiveLiveryColor = liveryColor || (isAI ? specs.aiDefaultColor : specs.liveryColor);
+export const F1Car: React.FC<F1CarProps> = memo(({ carState, isAI = false, liveryColor, isDrafting = false, isOvertaking = false }) => {
+  const root = useRef<THREE.Group>(null);
+  const livery = liveryColor || '#e10600';
 
-  const activeBeaconColor = (isDrafting || isOvertaking) ? '#FF9100' : effectiveLiveryColor;
-
-  // Authoritative rendering of CarState into Three.js object (no physics writeback)
-  useFrame((_, delta) => {
-    if (!vehicleRootRef.current) return;
-
-    const px = isNaN(carState.position.x) ? 0 : carState.position.x;
-    const py = isNaN(carState.position.y) ? 0.1 : carState.position.y;
-    const pz = isNaN(carState.position.z) ? 0 : carState.position.z;
-
-    const rx = isNaN(carState.rotation.x) ? 0 : carState.rotation.x;
-    const ry = isNaN(carState.rotation.y) ? 0 : carState.rotation.y;
-    const rz = isNaN(carState.rotation.z) ? 0 : carState.rotation.z;
-
-    vehicleRootRef.current.position.set(px, py, pz);
-    vehicleRootRef.current.rotation.set(rx, ry, rz, 'YXZ');
-
-    if (beaconRef.current) {
-      const rotSpeed = (isDrafting || isOvertaking) ? 5.5 : 2.5;
-      beaconRef.current.rotation.y += delta * rotSpeed;
-    }
+  useFrame(() => {
+    if (!root.current) return;
+    root.current.position.set(carState.position.x, carState.position.y, carState.position.z);
+    root.current.rotation.set(carState.rotation.x, carState.rotation.y, carState.rotation.z, 'YXZ');
   });
 
   return (
-    // VehicleRoot: Controls world position, physics yaw, and motion
-    <group ref={vehicleRootRef}>
-      {/* CarVisual Container: Scaled and rotated to match true real-world 1:1 dimensions and face forward +Z */}
-      <group
-        rotation={specs.rotationOffset}
-        scale={specs.scale}
-        position={specs.positionOffset}
-      >
-        <ModelErrorBoundary fallback={<ProceduralCarFallback color={effectiveLiveryColor} />}>
-          <Suspense fallback={<ProceduralCarFallback color={effectiveLiveryColor} />}>
-            <GLBCarModel
-              modelPath={specs.modelPath}
-              isAI={isAI}
-              liveryColor={effectiveLiveryColor}
-            />
-          </Suspense>
-        </ModelErrorBoundary>
-      </group>
-
-      {/* Floating Rival Beacon Indicator (only rendered for AI when active) */}
-      {isAI && (
-        <group ref={beaconRef} position={[0, 1.85, 0]}>
-          <mesh rotation={[0, Math.PI / 4, 0]}>
-            <octahedronGeometry args={[isDrafting || isOvertaking ? 0.28 : 0.22, 0]} />
-            <meshStandardMaterial
-              color={activeBeaconColor}
-              emissive={activeBeaconColor}
-              emissiveIntensity={isDrafting || isOvertaking ? 1.4 : 0.9}
-              roughness={0.15}
-            />
-          </mesh>
-          <pointLight
-            color={activeBeaconColor}
-            intensity={isDrafting || isOvertaking ? 4.5 : 2.5}
-            distance={8}
-          />
-        </group>
-      )}
-
-      {/* Realistic Feathered Ambient Contact Shadow scaled to full 4.5m car */}
-      <mesh position={[0, -0.015, 0]} rotation={[-Math.PI / 2, 0, 0]}>
-        <planeGeometry args={[3.2, 5.8]} />
-        <meshBasicMaterial
-          map={shadowTexture}
-          transparent
-          opacity={0.65}
-          depthWrite={false}
-        />
+    <group ref={root}>
+      <mesh geometry={CAR_GEOMETRIES.carbon} material={SHARED_MATERIALS.carbon} castShadow receiveShadow />
+      <mesh geometry={CAR_GEOMETRIES.livery} castShadow>
+        <meshStandardMaterial color={livery} metalness={0.4} roughness={0.3} />
       </mesh>
+      <mesh geometry={CAR_GEOMETRIES.tire} material={SHARED_MATERIALS.tire} castShadow />
+      <mesh geometry={CAR_GEOMETRIES.metal} material={SHARED_MATERIALS.metal} />
+      <mesh geometry={CAR_GEOMETRIES.helmet} material={SHARED_MATERIALS.helmet} />
+      <mesh geometry={CAR_GEOMETRIES.light} material={SHARED_MATERIALS.light} />
+      <mesh geometry={SHADOW_GEOMETRY} position={[0, -0.015, 0]} rotation={[-Math.PI / 2, 0, 0]}>
+        <meshBasicMaterial color="#030508" transparent opacity={0.42} depthWrite={false} />
+      </mesh>
+      {isAI && (isDrafting || isOvertaking) && (
+        <mesh position={[0, 1.48, -0.1]}>
+          <octahedronGeometry args={[0.14, 0]} />
+          <meshStandardMaterial color="#ffb000" emissive="#ffb000" emissiveIntensity={1.5} />
+        </mesh>
+      )}
     </group>
   );
-};
-
-// Preload all 5 GLB models for instantaneous model switching
-useGLTF.preload('/mclaren_mp45.glb');
-useGLTF.preload('/1967_ferrari_312.glb');
-useGLTF.preload('/1972_lotus_72d.glb');
-useGLTF.preload('/1989_ferrari_f40_competizione.glb');
-useGLTF.preload('/2014_ferrari_f1.glb');
+});

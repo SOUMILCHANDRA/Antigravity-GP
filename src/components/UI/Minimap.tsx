@@ -1,20 +1,20 @@
 import React, { useRef, useEffect } from 'react';
 import { SplinePoint, Vector3D } from '../../types/track';
 
+interface MinimapAICar { position: Vector3D; rotationY: number; color: string }
+
 interface MinimapProps {
   splinePoints: SplinePoint[];
   carPosition: Vector3D;
   carRotationY: number;
-  aiPosition?: Vector3D | null;
-  aiRotationY?: number;
+  aiCars?: MinimapAICar[];
 }
 
 export const Minimap: React.FC<MinimapProps> = ({
   splinePoints,
   carPosition,
   carRotationY,
-  aiPosition,
-  aiRotationY
+  aiCars = []
 }) => {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
 
@@ -64,24 +64,12 @@ export const Minimap: React.FC<MinimapProps> = ({
     ctx.lineWidth = 2;
     ctx.stroke();
 
-    // AI Competitor Dot (Cyan)
-    if (aiPosition) {
-      const aiM = worldToMinimap(aiPosition.x, aiPosition.z);
+    for (const ai of aiCars) {
+      const aiM = worldToMinimap(ai.position.x, ai.position.z);
       ctx.beginPath();
-      ctx.arc(aiM.x, aiM.y, 4, 0, Math.PI * 2);
-      ctx.fillStyle = '#00E5FF';
+      ctx.arc(aiM.x, aiM.y, 3.2, 0, Math.PI * 2);
+      ctx.fillStyle = ai.color;
       ctx.fill();
-
-      if (aiRotationY !== undefined) {
-        const ax = aiM.x + Math.sin(aiRotationY) * 6;
-        const ay = aiM.y + Math.cos(aiRotationY) * 6;
-        ctx.beginPath();
-        ctx.moveTo(aiM.x, aiM.y);
-        ctx.lineTo(ax, ay);
-        ctx.strokeStyle = '#00E5FF';
-        ctx.lineWidth = 1.5;
-        ctx.stroke();
-      }
     }
 
     // Player Car Dot Marker (Red)
@@ -104,7 +92,7 @@ export const Minimap: React.FC<MinimapProps> = ({
     ctx.lineWidth = 1.8;
     ctx.stroke();
 
-  }, [splinePoints, carPosition, carRotationY, aiPosition, aiRotationY]);
+  }, [splinePoints, carPosition, carRotationY, aiCars]);
 
   return (
     <div className="race-minimap absolute top-20 right-6 bg-[#0E131F]/90 backdrop-blur-md border border-[#1E2638] rounded-2xl p-3 shadow-xl z-30 select-none">
@@ -112,13 +100,13 @@ export const Minimap: React.FC<MinimapProps> = ({
         <span className="text-[10px] font-bold font-mono text-slate-400 uppercase tracking-wider">
           CIRCUIT MAP
         </span>
-        {aiPosition && (
+        {aiCars.length > 0 && (
           <div className="flex items-center gap-2 text-[9px] font-mono">
             <span className="flex items-center gap-1 text-red-400">
               <span className="w-1.5 h-1.5 rounded-full bg-[#E10600]"></span> YOU
             </span>
             <span className="flex items-center gap-1 text-cyan-400">
-              <span className="w-1.5 h-1.5 rounded-full bg-[#00E5FF]"></span> AI
+              <span className="w-1.5 h-1.5 rounded-full bg-[#00E5FF]"></span> GRID {aiCars.length + 1}
             </span>
           </div>
         )}
