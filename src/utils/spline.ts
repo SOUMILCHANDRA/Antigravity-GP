@@ -191,7 +191,9 @@ export function getNearestSplinePoint(
     const dz = carPos.z - projZ;
     // Include vertical distance weighting so overpasses/crossovers don't latch onto lower/upper track
     const dy = carPos.y !== undefined ? (carPos.y - projY) : 0;
-    const distSq = dx * dx + dz * dz + dy * dy * 0.45;
+    // Give deck height enough influence that a car on an overpass cannot snap
+    // to a nearby underpass just because its X/Z projection is a few metres closer.
+    const distSq = dx * dx + dz * dz + dy * dy * 4;
 
     if (distSq < minDistanceSq) {
       minDistanceSq = distSq;

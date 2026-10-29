@@ -181,11 +181,19 @@ export function addAutomaticGradeSeparation(points: SplinePoint[], closed = true
     const secondY = result[crossing.secondIndex].position.y * (1 - crossing.secondT)
       + result[(crossing.secondIndex + 1) % result.length].position.y * crossing.secondT;
 
-    const firstIsLower = firstY <= secondY;
+    const elevationGap = Math.abs(firstY - secondY);
+    const firstTurn = passageCurvature(result, crossing.firstIndex);
+    const secondTurn = passageCurvature(result, crossing.secondIndex);
+    // Preserve an obvious authored height order. For nearly level passages,
+    // put the straighter, more bridge-friendly section on the upper deck.
+    const firstIsBridge = elevationGap >= 3
+      ? firstY > secondY
+      : firstTurn < secondTurn - 1e-4;
+    const firstIsLower = !firstIsBridge;
     const upperDistanceOnRoute = firstIsLower ? upperDistance : lowerDistance;
     const lowerDistanceOnRoute = firstIsLower ? lowerDistance : upperDistance;
     const upperY = firstIsLower ? secondY : firstY;
-    const lowerY = Math.min(firstY, secondY);
+    const lowerY = firstIsLower ? firstY : secondY;
     const lift = Math.max(0, lowerY + 8 - upperY);
 
     for (let i = 0; i < result.length; i++) {
@@ -225,4 +233,13 @@ export function addAutomaticGradeSeparation(points: SplinePoint[], closed = true
   }
 
   return result;
+}
+
+function passageCurvature(points: SplinePoint[], index: number): number {
+  const previous = points[(index - 1 + points.length) % points.length].tangent;
+  const next = points[(index + 1) % points.length].tangent;
+  const dot = previous.x * next.x + previous.y * next.y + previous.z * next.z;
+  const previousLength = Math.hypot(previous.x, previous.y, previous.z) || 1;
+  const nextLength = Math.hypot(next.x, next.y, next.z) || 1;
+  return Math.acos(Math.max(-1, Math.min(1, dot / (previousLength * nextLength))));
 }
