@@ -3,6 +3,8 @@ import * as THREE from 'three';
 import { SplinePoint, TrackConfig } from '../../types/track';
 import { VenueFacilities } from './VenueFacilities';
 import { getTerrainHeight } from '../../utils/terrain';
+import { resolvePitLaneConfig } from '../../utils/pitLane';
+import { TunnelLighting } from './TunnelLighting';
 
 function createCheckeredTexture(): THREE.CanvasTexture {
   const canvas = document.createElement('canvas');
@@ -259,7 +261,7 @@ function createBridgeSupportGeometry(splinePoints: SplinePoint[]): THREE.BufferG
 
 export const TrackMesh: React.FC<TrackMeshProps> = ({ splinePoints, trackConfig }) => {
   const dressing = trackConfig.dressing;
-  const pitLane = trackConfig.pitLane;
+  const pitLane = useMemo(() => resolvePitLaneConfig(trackConfig, splinePoints), [trackConfig, splinePoints]);
 
   // Rebuild road mesh cleanly with non-overlapping adjacent strips to eliminate Z-fighting
   const { 
@@ -637,10 +639,13 @@ export const TrackMesh: React.FC<TrackMeshProps> = ({ splinePoints, trackConfig 
       const pitWallVerts: number[] = [];
       const pitWallIndices: number[] = [];
 
-      const pitSpan = Math.min(30, Math.floor(numPoints * 0.08));
+      const pitEntry = Math.round((pitLane.entryT ?? 0.92) * numPoints) % numPoints;
+      const pitExit = Math.round((pitLane.exitT ?? 0.08) * numPoints) % numPoints;
       const pitIndicesSeq: number[] = [];
-      for (let i = numPoints - pitSpan; i < numPoints; i++) pitIndicesSeq.push(i);
-      for (let i = 0; i <= pitSpan; i++) pitIndicesSeq.push(i);
+      for (let index = pitEntry, steps = 0; steps < numPoints * 0.24; index = (index + 1) % numPoints, steps++) {
+        pitIndicesSeq.push(index);
+        if (index === pitExit) break;
+      }
 
       const totalPitSteps = pitIndicesSeq.length;
       for (let sIdx = 0; sIdx < totalPitSteps; sIdx++) {
@@ -844,9 +849,10 @@ export const TrackMesh: React.FC<TrackMeshProps> = ({ splinePoints, trackConfig 
       {/* Automatic tunnel lining for underpasses and roads passing beneath hills */}
       {tunnelGeom && (
         <mesh geometry={tunnelGeom} receiveShadow castShadow>
-          <meshStandardMaterial color="#34343A" roughness={0.94} metalness={0.02} side={THREE.DoubleSide} />
+          <meshStandardMaterial color="#565960" roughness={0.9} metalness={0.02} side={THREE.DoubleSide} />
         </mesh>
       )}
+      <TunnelLighting splinePoints={splinePoints} />
 
       {/* 3b. Crisp White Boundary Edge Lines */}
       {whiteLinesGeom && (
@@ -891,7 +897,13 @@ export const TrackMesh: React.FC<TrackMeshProps> = ({ splinePoints, trackConfig 
       )}
 
       {/* 9. 3D Venue Facilities Library */}
-      <VenueFacilities facilities={trackConfig.facilities} splinePoints={splinePoints} />
+      <VenueFacilities
+        facilities={trackConfig.facilities}
+        splinePoints={splinePoints}
+        pitLane={pitLane}
+        trackName={trackConfig.name}
+        sponsorName={dressing?.sponsorName}
+      />
 
       {/* 10. Start / Finish Line Arch Bridge */}
       {startP && (

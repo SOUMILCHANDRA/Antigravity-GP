@@ -183,10 +183,12 @@ export function updateCarPhysics(
     const toCarX = currentState.position.x - nearestPoint.position.x;
     const toCarZ = currentState.position.z - nearestPoint.position.z;
     const latOffset = (toCarX * nearestPoint.binormal.x + toCarZ * nearestPoint.binormal.z) * sideMult;
-    const trackLen = splinePoints[splinePoints.length - 1].distance;
-
-    const isNearStart = nearestPoint.distance < 120 || (trackLen > 0 && nearestPoint.distance > trackLen - 120);
-    if (isNearStart && latOffset >= halfWidth + 0.6 && latOffset <= halfWidth + 0.8 + pitLaneWidth) {
+    const entryT = ((trackConfig.pitLane.entryT ?? 0.93) % 1 + 1) % 1;
+    const exitT = ((trackConfig.pitLane.exitT ?? 0.07) % 1 + 1) % 1;
+    const inPitLaneSection = entryT <= exitT
+      ? nearestPoint.t >= entryT && nearestPoint.t <= exitT
+      : nearestPoint.t >= entryT || nearestPoint.t <= exitT;
+    if (inPitLaneSection && latOffset >= halfWidth + 0.6 && latOffset <= halfWidth + 0.8 + pitLaneWidth) {
       isInsidePitLane = true;
     }
   }

@@ -1,18 +1,64 @@
-import React, { useMemo } from 'react';
+import React, { useEffect, useMemo } from 'react';
 import * as THREE from 'three';
-import { VenueFacility, SplinePoint } from '../../types/track';
+import { VenueFacility, SplinePoint, PitLaneConfig } from '../../types/track';
 
 interface VenueFacilitiesProps {
   facilities?: VenueFacility[];
   splinePoints: SplinePoint[];
+  pitLane?: PitLaneConfig;
+  trackName?: string;
+  sponsorName?: string;
 }
 
-export const VenueFacilities: React.FC<VenueFacilitiesProps> = ({ facilities = [], splinePoints }) => {
-  if (facilities.length === 0 || splinePoints.length < 2) return null;
+export const VenueFacilities: React.FC<VenueFacilitiesProps> = React.memo(({ facilities = [], splinePoints, pitLane, trackName, sponsorName }) => {
+  if (splinePoints.length < 2) return null;
+
+  const totalLength = splinePoints[splinePoints.length - 1].distance;
+  const explicitTypes = new Set(facilities.map((facility) => facility.type));
+  const generated: VenueFacility[] = [];
+  const anchoredFacility = (id: string, type: VenueFacility['type'], splineT: number, side: 'left' | 'right', scaleX: number, label?: string): VenueFacility => ({
+    id,
+    type,
+    splineT,
+    side,
+    label,
+    position: { x: 0, y: 0, z: 0 },
+    rotation: { x: 0, y: 0, z: 0 },
+    scale: { x: scaleX, y: 1, z: 1 }
+  });
+
+  // Auto-build a light-touch venue on new circuits; manually placed facilities replace their generated category.
+  if (!explicitTypes.has('grandstand')) generated.push(anchoredFacility('auto-grandstand', 'grandstand', 0.025, 'left', 12));
+  if (pitLane?.enabled && !explicitTypes.has('pit_building')) {
+    const pitT = pitLane.entryT > pitLane.exitT ? pitLane.entryT + (1 - pitLane.entryT + pitLane.exitT) / 2 : (pitLane.entryT + pitLane.exitT) / 2;
+    generated.push(anchoredFacility('auto-pit-building', 'pit_building', pitT % 1, pitLane.side, (pitLane.width || 7.5) + 14));
+  }
+  if (!explicitTypes.has('sponsor_board') && totalLength > 0) {
+    const boardCount = Math.min(20, Math.max(4, Math.floor(totalLength / 450)));
+    for (let index = 0; index < boardCount; index++) {
+      generated.push(anchoredFacility(
+        `auto-sponsor-${index}`,
+        'sponsor_board',
+        (index + 0.35) / boardCount,
+        index % 2 === 0 ? 'left' : 'right',
+        9,
+        sponsorName || trackName || 'ANTIGRAVITY GP'
+      ));
+    }
+  }
+  if (!explicitTypes.has('marshal_post') && totalLength > 0) {
+    const marshalCount = Math.min(10, Math.max(4, Math.floor(totalLength / 900)));
+    for (let index = 0; index < marshalCount; index++) {
+      generated.push(anchoredFacility(`auto-marshal-${index}`, 'marshal_post', (index + 0.5) / marshalCount, index % 2 === 0 ? 'right' : 'left', 2));
+    }
+  }
+
+  const visibleFacilities = [...facilities, ...generated];
+  if (visibleFacilities.length === 0) return null;
 
   return (
     <group name="venue-facilities">
-      {facilities.map((fac) => {
+      {visibleFacilities.map((fac) => {
         // Calculate world position if anchored to splineT
         let posX = fac.position.x;
         let posY = fac.position.y;
@@ -89,7 +135,7 @@ export const VenueFacilities: React.FC<VenueFacilitiesProps> = ({ facilities = [
       })}
     </group>
   );
-};
+});
 
 // 1. Multi-tier Covered Grandstand
 const GrandstandMesh: React.FC<{ position: [number, number, number]; rotation: [number, number, number]; seats: number }> = ({
@@ -207,16 +253,36 @@ const TireBarrierMesh: React.FC<{ position: [number, number, number]; rotation: 
 };
 
 // 4. Trackside Sponsor Board
-const SponsorBoardMesh: React.FC<{ position: [number, number, number]; rotation: [number, number, number]; label: string }> = ({
-  position,
-  rotation
-}) => {
+const SponsorBoardMesh: React.FC<{ position: [number, number, number]; rotation: [number, number, number]; label: string }> = ({ position, rotation, label }) => {
+  const boardTexture = useMemo(() => {
+    const canvas = document.createElement('canvas');
+    canvas.width = 1024;
+    canvas.height = 192;
+    const context = canvas.getContext('2d');
+    if (!context) return null;
+    context.fillStyle = '#dc2626';
+    context.fillRect(0, 0, canvas.width, canvas.height);
+    context.fillStyle = '#ffffff';
+    context.font = '800 76px Arial, sans-serif';
+    context.textAlign = 'center';
+    context.textBaseline = 'middle';
+    context.fillText(label.toUpperCase(), canvas.width / 2, canvas.height / 2, canvas.width - 64);
+    const texture = new THREE.CanvasTexture(canvas);
+    texture.colorSpace = THREE.SRGBColorSpace;
+    return texture;
+  }, [label]);
+  useEffect(() => () => boardTexture?.dispose(), [boardTexture]);
+
   return (
     <group position={position} rotation={rotation}>
       {/* Slanted A-Frame Board */}
       <mesh position={[0, 0.7, 0]} rotation={[-0.2, 0, 0]} castShadow>
         <boxGeometry args={[8, 1.4, 0.15]} />
         <meshStandardMaterial color="#E10600" metalness={0.2} roughness={0.4} />
+      </mesh>
+      <mesh position={[0, 0.7, 0.085]} rotation={[-0.2, 0, 0]}>
+        <planeGeometry args={[7.8, 1.25]} />
+        <meshStandardMaterial map={boardTexture} color={boardTexture ? '#ffffff' : '#dc2626'} roughness={0.55} />
       </mesh>
       {/* Support Legs */}
       <mesh position={[-3.5, 0.3, -0.4]}>

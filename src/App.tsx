@@ -3,6 +3,7 @@ import { AppMode, CarState, LapTelemetry, TrackConfig, TrackNode, AICompetitorSt
 import { EMPTY_TRACK } from './utils/presets';
 import { buildTrackCurve, sampleSplinePoints, getNearestSplinePoint, checkFinishLineCrossing } from './utils/spline';
 import { addAutomaticGradeSeparation } from './utils/gradeSeparation';
+import { resolvePitLaneConfig } from './utils/pitLane';
 import { createInitialCarState, updateCarPhysics, resetVehicle } from './utils/physics';
 import { createAICompetitor, updateAICompetitor, resolveCarCollision, calculateRaceBattle } from './utils/aiCompetitor';
 import { generateIdealRacingLine } from './utils/racingLine';
@@ -243,6 +244,10 @@ export function App() {
     const curve = buildTrackCurve(track.nodes, track.isClosed);
     return addAutomaticGradeSeparation(sampleSplinePoints(curve, track.nodes, 350), track.isClosed);
   }, [track]);
+
+  const raceTrackConfig = useMemo(() => track.pitLane
+    ? track
+    : { ...track, pitLane: resolvePitLaneConfig(track, splinePoints) }, [track, splinePoints]);
 
   const racingLinePoints = useMemo(() => {
     return generateIdealRacingLine(splinePoints);
@@ -507,7 +512,7 @@ export function App() {
 
       // 1. Step Player Physics using carStateRef
       const pSpecs = CAR_PRESETS[playerCarId] || CAR_PRESETS[DEFAULT_PLAYER_CAR_ID];
-      let nextState = updateCarPhysics(carStateRef.current, inputs, splinePoints, dt, pSpecs, track);
+      let nextState = updateCarPhysics(carStateRef.current, inputs, splinePoints, dt, pSpecs, raceTrackConfig);
 
       // 2. Step AI Competitor Physics & Intelligent Racing Logic (if enabled)
       if (aiEnabled && splinePoints.length >= 4) {
@@ -679,7 +684,7 @@ export function App() {
 
     animFrameId = requestAnimationFrame(loop);
     return () => cancelAnimationFrame(animFrameId);
-  }, [mode, splinePoints, racingLinePoints, aiEnabled, aiDifficulty, playerCarId, aiCarId]);
+  }, [mode, splinePoints, racingLinePoints, raceTrackConfig, aiEnabled, aiDifficulty, playerCarId, aiCarId]);
 
   // Auto-dismiss lap toast notification after 3.5 seconds
   useEffect(() => {
@@ -695,7 +700,7 @@ export function App() {
   };
 
   const handleExportTrack = () => {
-    const jsonStr = JSON.stringify(track, null, 2);
+    const jsonStr = JSON.stringify(raceTrackConfig, null, 2);
     const blob = new Blob([jsonStr], { type: 'application/json' });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
@@ -782,7 +787,7 @@ export function App() {
                 {studioStage === 'show' && is3DFlythrough ? (
                   <FlythroughViewer
                     splinePoints={splinePoints}
-                    trackConfig={track}
+                    trackConfig={raceTrackConfig}
                     isPlaying={isFlythroughPlaying}
                     progress={flythroughProgress}
                     onProgressChange={setFlythroughProgress}
@@ -792,7 +797,7 @@ export function App() {
                 ) : (
                   <StudioOrbitViewer
                     splinePoints={splinePoints}
-                    trackConfig={track}
+                    trackConfig={raceTrackConfig}
                   />
                 )}
               </div>
@@ -824,7 +829,7 @@ export function App() {
             {/* Stage 5: Show Stage Panel (Telemetry, Turns, Elevation & Speed Chart, 3D Flythrough, Export/Import) */}
             {studioStage === 'show' && (
               <ShowStagePanel
-                track={track}
+                track={raceTrackConfig}
                 setTrack={updateTrackState}
                 splinePoints={splinePoints}
                 playerCarId={playerCarId}
@@ -927,7 +932,7 @@ export function App() {
           <div className="w-full h-full relative">
             <RaceCanvas
               splinePoints={splinePoints}
-              trackConfig={track}
+              trackConfig={raceTrackConfig}
               carState={carState}
               aiCarState={aiEnabled ? aiCarState : null}
               showRacingLine={showRacingLine}
