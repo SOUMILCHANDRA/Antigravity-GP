@@ -175,6 +175,88 @@ function createBridgeDeck(splinePoints: SplinePoint[], isClosed: boolean): THREE
   return geometry;
 }
 
+function createBridgeSupportGeometry(splinePoints: SplinePoint[]): THREE.BufferGeometry | null {
+  if (splinePoints.length < 2 || !splinePoints.some((point) => point.bridge)) return null;
+
+  const vertices: number[] = [];
+  const indices: number[] = [];
+  const halfPierWidth = 0.9;
+  const halfPierLength = 1.25;
+  const pointCount = splinePoints.length;
+
+  const appendPier = (centerX: number, baseY: number, centerZ: number, topY: number, sideX: number, sideZ: number, forwardX: number, forwardZ: number) => {
+    const base = vertices.length / 3;
+    for (const y of [baseY, topY]) {
+      for (const lateral of [-halfPierWidth, halfPierWidth]) {
+        for (const longitudinal of [-halfPierLength, halfPierLength]) {
+          vertices.push(
+            centerX + sideX * lateral + forwardX * longitudinal,
+            y,
+            centerZ + sideZ * lateral + forwardZ * longitudinal
+          );
+        }
+      }
+    }
+    const faces = [
+      [0, 2, 1], [1, 2, 3], [4, 5, 6], [5, 7, 6],
+      [0, 1, 4], [1, 5, 4], [2, 6, 3], [3, 6, 7],
+      [0, 4, 2], [2, 4, 6], [1, 3, 5], [3, 7, 5]
+    ];
+    for (const face of faces) indices.push(base + face[0], base + face[1], base + face[2]);
+  };
+
+  for (let start = 0; start < pointCount; start++) {
+    if (!splinePoints[start].bridge || (start > 0 && splinePoints[start - 1].bridge)) continue;
+    let end = start;
+    while (end + 1 < pointCount && splinePoints[end + 1].bridge) end++;
+    const bridge = splinePoints[Math.floor((start + end) / 2)];
+
+    let underpass: SplinePoint | null = null;
+    let nearestDistance = Infinity;
+    for (const candidate of splinePoints) {
+      if (!candidate.tunnel || candidate.position.y >= bridge.position.y - 3) continue;
+      const distance = Math.hypot(candidate.position.x - bridge.position.x, candidate.position.z - bridge.position.z);
+      if (distance < nearestDistance) {
+        nearestDistance = distance;
+        underpass = candidate;
+      }
+    }
+    if (!underpass || nearestDistance > (bridge.width + underpass.width) * 0.75) continue;
+
+    const baseY = underpass.position.y - 0.2;
+    const topY = bridge.position.y - 1.1;
+    if (topY - baseY < 2.5) continue;
+
+    const sideLength = Math.hypot(bridge.binormal.x, bridge.binormal.z) || 1;
+    const forwardLength = Math.hypot(bridge.tangent.x, bridge.tangent.z) || 1;
+    const sideX = bridge.binormal.x / sideLength;
+    const sideZ = bridge.binormal.z / sideLength;
+    const forwardX = bridge.tangent.x / forwardLength;
+    const forwardZ = bridge.tangent.z / forwardLength;
+    const offset = bridge.width / 2 + 1.6;
+    for (const side of [-1, 1]) {
+      appendPier(
+        bridge.position.x + sideX * offset * side,
+        baseY,
+        bridge.position.z + sideZ * offset * side,
+        topY,
+        sideX,
+        sideZ,
+        forwardX,
+        forwardZ
+      );
+    }
+    start = end;
+  }
+
+  if (indices.length === 0) return null;
+  const geometry = new THREE.BufferGeometry();
+  geometry.setAttribute('position', new THREE.Float32BufferAttribute(vertices, 3));
+  geometry.setIndex(indices);
+  geometry.computeVertexNormals();
+  return geometry;
+}
+
 export const TrackMesh: React.FC<TrackMeshProps> = ({ splinePoints, trackConfig }) => {
   const dressing = trackConfig.dressing;
   const pitLane = trackConfig.pitLane;
@@ -190,6 +272,7 @@ export const TrackMesh: React.FC<TrackMeshProps> = ({ splinePoints, trackConfig 
     armcoGeom,
     embankmentGeom,
     bridgeGeom,
+    bridgeSupportGeom,
     tunnelGeom,
     pitLaneGeom,
     pitWallGeom
@@ -205,6 +288,7 @@ export const TrackMesh: React.FC<TrackMeshProps> = ({ splinePoints, trackConfig 
         armcoGeom: null,
         embankmentGeom: null,
         bridgeGeom: null,
+        bridgeSupportGeom: null,
         tunnelGeom: null,
         pitLaneGeom: null,
         pitWallGeom: null
@@ -537,6 +621,7 @@ export const TrackMesh: React.FC<TrackMeshProps> = ({ splinePoints, trackConfig 
     embGeom.computeVertexNormals();
 
     const bridge = createBridgeDeck(splinePoints, trackConfig.isClosed);
+    const bridgeSupports = createBridgeSupportGeometry(splinePoints);
     const tunnel = createTunnelShell(splinePoints);
 
     // 7. Pit Lane Road & Concrete Pit Wall Geometry (if enabled)
@@ -627,6 +712,7 @@ export const TrackMesh: React.FC<TrackMeshProps> = ({ splinePoints, trackConfig 
       armcoGeom: armGeom,
       embankmentGeom: embGeom,
       bridgeGeom: bridge,
+      bridgeSupportGeom: bridgeSupports,
       tunnelGeom: tunnel,
       pitLaneGeom: pLaneGeom,
       pitWallGeom: pWallGeom
@@ -720,6 +806,12 @@ export const TrackMesh: React.FC<TrackMeshProps> = ({ splinePoints, trackConfig 
       {bridgeGeom && (
         <mesh geometry={bridgeGeom} receiveShadow castShadow>
           <meshStandardMaterial color="#62676D" roughness={0.82} metalness={0.08} side={THREE.DoubleSide} />
+        </mesh>
+      )}
+
+      {bridgeSupportGeom && (
+        <mesh geometry={bridgeSupportGeom} receiveShadow castShadow>
+          <meshStandardMaterial color="#777A7D" roughness={0.88} metalness={0.05} />
         </mesh>
       )}
 
